@@ -2,6 +2,15 @@
 
 All notable changes to Flyx are documented in this file.
 
+## [3.2.9] - 2026-10-07
+
+### Fixed
+
+- **VidSrc plays again.** VidSrc moved to a new address and now hands out a one-time access pass for each video. Flyx follows the new steps and requests a fresh pass every time you press play.
+- **2embed (MultiEmbed) plays again, including TV episodes.** 2embed changed its list of servers and started encrypting it. Flyx reads the new list and tries the server that currently plays reliably first. Two of its backup servers ignored which TV episode you picked; they now open the right one.
+- **Videasy keeps working when its own servers are down.** Videasy's servers are currently failing. Flyx now plays Videasy's Neon server straight from its source (VidSrc), and the stream is labeled "Videasy Neon (VidSrc fallback)". It also stops retrying a failing Videasy server for 30 seconds instead of making you wait.
+- **Fewer stalled streams.** The built-in stream proxy only fetched the first 2 MB of some video pieces, so larger pieces arrived incomplete and playback could stall. It now fetches them in full. Seeking in MP4 files works as before.
+
 ## [3.2.8] - 2026-09-27
 
 ### Fixed

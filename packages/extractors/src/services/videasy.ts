@@ -2,23 +2,23 @@
  * Videasy extractor.
  *
  * Reverse-engineered extraction chain:
- *   1. GET db.speedracelight.com/3/movie|tv/{id} → TMDB metadata
+ *   1. Fetch metadata from TMDB (or the public 2embed metadata API)
  *   2. GET api.speedracelight.com/seed?mediaId={tmdbId} → short-lived seed
  *   3. GET api.speedracelight.com/{provider}/sources-with-title?...&enc=2&seed=
  *      → base64 payload encrypted with custom PRNG (magic "mvm1")
  *   4. XOR-decrypt payload → JSON { sources, subtitles }
  *
  * Providers (Valorant-themed in player UI):
- *   cdn, neon2, m4uhd, meine, lamovie, hdmovie, superflix
+ *   cdn, vsrc (Neon), downloader2, m4uhd, meine, lamovie, hdmovie, superflix
  *
- * Domains: player.videasy.to, api.speedracelight.com, db.speedracelight.com
+ * If the intermediary fails, Neon is resolved directly through VidSrc.
  */
 
 import type { StreamSource, SubtitleTrack } from "@flyx/core";
+import { extractVidSrc } from "./vidsrc";
 
 // ── Constants ────────────────────────────────────────────────
 
-const TMDB_PROXY = "https://db.speedracelight.com/3";
 const API_BASE = "https://api.speedracelight.com";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -29,7 +29,8 @@ const UA =
  */
 const PROVIDERS = [
   { path: "/cdn/sources-with-title", label: "Yoru" },
-  { path: "/neon2/sources-with-title", label: "Neon" },
+  { path: "/vsrc/sources-with-title", label: "Neon" },
+  { path: "/downloader2/sources-with-title", label: "Cypher" },
   { path: "/m4uhd/sources-with-title", label: "Breach" },
   { path: "/meine/sources-with-title", label: "Killjoy" },
   { path: "/lamovie/sources-with-title", label: "Omen" },
@@ -226,8 +227,10 @@ const defaultHeaders = {
 const seedCache = new Map<string, { seed: string; expiresAt: number }>();
 /** In-flight seed fetches so parallel callers share one request. */
 const seedInflight = new Map<string, Promise<string>>();
+let seedUnavailableUntil = 0;
 
 async function getSeed(mediaId: number, force = false): Promise<string> {
+  if (Date.now() < seedUnavailableUntil) throw new Error("Videasy seed service temporarily unavailable");
   const key = `${API_BASE}|${mediaId}`;
   const now = Date.now();
   if (!force) {
@@ -239,15 +242,17 @@ async function getSeed(mediaId: number, force = false): Promise<string> {
 
   const promise = (async () => {
     let lastErr: Error | null = null;
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 12000);
         const res = await fetch(`${API_BASE}/seed?mediaId=${mediaId}`, {
           headers: defaultHeaders,
-          signal: controller.signal,
+          signal: AbortSignal.timeout(8000),
         });
-        clearTimeout(timer);
+        if (res.status >= 500 || res.status === 429) {
+          seedUnavailableUntil = Date.now() + 30_000;
+          await res.body?.cancel();
+          throw new Error(`Videasy seed HTTP ${res.status}`);
+        }
         const data = (await res.json()) as {
           seed?: string;
           ttlMs?: number;
@@ -272,6 +277,7 @@ async function getSeed(mediaId: number, force = false): Promise<string> {
         return data.seed;
       } catch (e) {
         lastErr = e as Error;
+        if (Date.now() < seedUnavailableUntil) break;
         await sleep(400 * (attempt + 1));
       }
     }
@@ -355,7 +361,7 @@ async function fetchProvider(
   try {
     return await attempt(seed);
   } catch (e) {
-    if ((e as Error).message === "SEED_INVALID") {
+    if (["SEED_INVALID", "HTTP 401"].includes((e as Error).message)) {
       try {
         seedCache.delete(`${API_BASE}|${mediaId}`);
         const fresh = await getSeed(mediaId, true);
@@ -419,7 +425,20 @@ export async function extractVideasy(
     subtitles: [] as SubtitleTrack[],
   };
 
+  // The current Videasy player calls its VidSrc-backed server "Neon".
+  // If Videasy's intermediary is down, use that upstream directly and make
+  // the fallback explicit in the source title (it is not an independent CDN).
+  const neonFallback = async () => {
+    const result = await extractVidSrc(tmdbId, mediaType, season, episode);
+    return {
+      ...result,
+      sources: result.sources.map((source) => ({ ...source, title: `Videasy Neon (VidSrc fallback)${source.title ? ` · ${source.title}` : ""}` })),
+    };
+  };
+
   try {
+    // Detect a seed-service outage before spending time on metadata.
+    let seed = await getSeed(tmdbId);
     // ── Step 1: TMDB metadata via proxy ────────────────────
     const isTv =
       mediaType === "tv" && season !== undefined && episode !== undefined;
@@ -427,7 +446,7 @@ export async function extractVideasy(
       ? `/tv/${tmdbId}?append_to_response=external_ids`
       : `/movie/${tmdbId}?append_to_response=external_ids`;
 
-    const tmdb = await fetchJSON<{
+    type Metadata = {
       id: number;
       title?: string;
       name?: string;
@@ -438,7 +457,21 @@ export async function extractVideasy(
       imdb_id?: string;
       external_ids?: { imdb_id?: string };
       number_of_seasons?: number;
-    }>(`${TMDB_PROXY}${path}`, { headers: defaultHeaders });
+      year?: string;
+    };
+    // Videasy itself now uses TMDB directly. Reuse the application's key;
+    // installations without one can use 2embed's public metadata response.
+    let tmdb: Metadata;
+    const tmdbKey = process.env.TMDB_API_KEY;
+    if (tmdbKey) {
+      try {
+        tmdb = await fetchJSON<Metadata>(`https://api.themoviedb.org/3${path}&api_key=${encodeURIComponent(tmdbKey)}`);
+      } catch {
+        tmdb = await fetchJSON<Metadata>(`https://api.2embed.cc/${isTv ? "tv" : "movie"}?tmdb_id=${tmdbId}`);
+      }
+    } else {
+      tmdb = await fetchJSON<Metadata>(`https://api.2embed.cc/${isTv ? "tv" : "movie"}?tmdb_id=${tmdbId}`);
+    }
 
     const title =
       tmdb.title ||
@@ -446,7 +479,7 @@ export async function extractVideasy(
       tmdb.original_title ||
       tmdb.original_name ||
       String(tmdbId);
-    const yearStr = (tmdb.release_date || tmdb.first_air_date || "").slice(0, 4);
+    const yearStr = (tmdb.release_date || tmdb.first_air_date || String(tmdb.year || "")).slice(0, 4);
     const year = yearStr ? parseInt(yearStr, 10) : undefined;
     const imdbId = tmdb.imdb_id || tmdb.external_ids?.imdb_id || "";
 
@@ -464,13 +497,6 @@ export async function extractVideasy(
     };
 
     // ── Step 2: One seed, sequential providers (avoids rate limits) ─
-    let seed: string;
-    try {
-      seed = await getSeed(tmdbId);
-    } catch {
-      return empty;
-    }
-
     const sources: StreamSource[] = [];
     const subtitles: SubtitleTrack[] = [];
     const seenUrls = new Set<string>();
@@ -498,8 +524,11 @@ export async function extractVideasy(
       await sleep(150);
     }
 
-    return { sources, subtitles };
-  } catch {
-    return empty;
+    if (sources.length) return { sources, subtitles };
+    console.warn("[Videasy] Native servers returned no streams; trying Neon directly");
+    return await neonFallback();
+  } catch (error) {
+    console.warn(`[Videasy] Native extraction failed: ${(error as Error).message}; trying Neon directly`);
+    try { return await neonFallback(); } catch { return empty; }
   }
 }

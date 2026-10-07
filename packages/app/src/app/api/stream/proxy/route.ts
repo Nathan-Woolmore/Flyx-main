@@ -215,7 +215,6 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
     // every producer encodes the upstream URL exactly once. Decoding again
     // would corrupt upstream URLs that legitimately contain %2B/%25/%26.
     let decodedUrl = url;
-    const urlSuggestsHls = decodedUrl.includes(".m3u8");
 
     // ── VidSrc: auto-fetch IP-bound token for stream CDN hosts ──
     let vidToken = "";
@@ -224,14 +223,15 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
         const hostOrigin = new URL(decodedUrl).origin;
         vidToken = await getVidSrcToken(hostOrigin);
         if (vidToken) {
-          decodedUrl += (decodedUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(vidToken);
+          const authenticatedUrl = new URL(decodedUrl);
+          authenticatedUrl.searchParams.set("token", vidToken);
+          decodedUrl = authenticatedUrl.href;
         }
       } catch { /* URL parse failed — continue without token */ }
     }
 
-    // Forward client Range header for MP4 seeking.
-    // If no Range is present, request the first 2MB so the CDN responds
-    // instantly (265ms for Range vs 13s for full-file GET).
+    // Forward explicit ranges for seeking. Never invent a 2 MB range:
+    // extensionless HLS playlists and large segments must arrive complete.
     const clientRange = request.headers.get("range");
     const upstreamHeaders: Record<string, string> = {
       "User-Agent": UA,
@@ -241,9 +241,6 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
     if (origin) upstreamHeaders["Origin"] = origin;
     if (clientRange) {
       upstreamHeaders["Range"] = clientRange;
-    } else if (!urlSuggestsHls) {
-      // Initial MP4 request — ask for just the start so we get a fast 206
-      upstreamHeaders["Range"] = "bytes=0-2097152"; // first 2MB
     }
 
     // Serve cached segments WITHOUT touching the upstream CDN at all —

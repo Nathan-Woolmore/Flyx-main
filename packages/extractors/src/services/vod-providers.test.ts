@@ -4,8 +4,8 @@
  * Tests all working extraction providers against their live backends.
  * Tests extractors directly (not through ProviderRegistry which lives in @flyx/providers).
  *
- * Resilience: soft warnings when API is rate-limited; hard assertions
- * for structural correctness of responses.
+ * VOD checks require nonempty results, so upstream outages fail the tests.
+ * Live TV and anime retain their separate availability semantics.
  */
 
 import { describe, it, expect } from "vitest";
@@ -60,7 +60,7 @@ describe("Videasy", () => {
     `extracts sources for "${MOVIE_FIGHT_CLUB.title}"`,
     async () => {
       const result = await extractVideasy(MOVIE_FIGHT_CLUB.tmdbId, "movie");
-      expect(Array.isArray(result.sources)).toBe(true);
+      expect(result.sources.length).toBeGreaterThan(0);
       console.log(summarize("Videasy movie", result.sources));
       for (const s of result.sources) assertStreamSourceShape(s, "Videasy");
     },
@@ -71,7 +71,7 @@ describe("Videasy", () => {
     `extracts sources for "${TV_BREAKING_BAD.title}"`,
     async () => {
       const result = await extractVideasy(TV_BREAKING_BAD.tmdbId, "tv", 1, 1);
-      expect(Array.isArray(result.sources)).toBe(true);
+      expect(result.sources.length).toBeGreaterThan(0);
       console.log(summarize("Videasy TV", result.sources));
       for (const s of result.sources) assertStreamSourceShape(s, "Videasy TV");
     },
@@ -84,7 +84,7 @@ describe("VidSrc", () => {
     `extracts sources for "${MOVIE_FIGHT_CLUB.title}"`,
     async () => {
       const result = await extractVidSrc(MOVIE_FIGHT_CLUB.tmdbId, "movie");
-      expect(Array.isArray(result.sources)).toBe(true);
+      expect(result.sources.length).toBeGreaterThan(0);
       console.log(summarize("VidSrc movie", result.sources));
       for (const s of result.sources) assertStreamSourceShape(s, "VidSrc");
     },
@@ -95,7 +95,7 @@ describe("VidSrc", () => {
     `extracts sources for "${TV_BREAKING_BAD.title}"`,
     async () => {
       const result = await extractVidSrc(TV_BREAKING_BAD.tmdbId, "tv", 1, 1);
-      expect(Array.isArray(result.sources)).toBe(true);
+      expect(result.sources.length).toBeGreaterThan(0);
       console.log(summarize("VidSrc TV", result.sources));
       for (const s of result.sources) assertStreamSourceShape(s, "VidSrc TV");
     },
@@ -107,8 +107,8 @@ describe("MultiEmbed", () => {
   it(
     `extracts sources for "${MOVIE_FIGHT_CLUB.title}"`,
     async () => {
-      const result = await extractMultiEmbed(MOVIE_FIGHT_CLUB.tmdbId, undefined, undefined, undefined, "movie");
-      expect(Array.isArray(result.sources)).toBe(true);
+      const result = await extractMultiEmbed(MOVIE_FIGHT_CLUB.tmdbId, "movie");
+      expect(result.sources.length).toBeGreaterThan(0);
       console.log(summarize("MultiEmbed movie", result.sources));
       for (const s of result.sources) assertStreamSourceShape(s, "MultiEmbed");
     },
@@ -118,8 +118,8 @@ describe("MultiEmbed", () => {
   it(
     `extracts sources for "${TV_BREAKING_BAD.title}"`,
     async () => {
-      const result = await extractMultiEmbed(TV_BREAKING_BAD.tmdbId, undefined, 1, 1, "tv");
-      expect(Array.isArray(result.sources)).toBe(true);
+      const result = await extractMultiEmbed(TV_BREAKING_BAD.tmdbId, "tv", 1, 1);
+      expect(result.sources.length).toBeGreaterThan(0);
       console.log(summarize("MultiEmbed TV", result.sources));
       for (const s of result.sources) assertStreamSourceShape(s, "MultiEmbed TV");
     },
@@ -197,7 +197,7 @@ describe("Provider Matrix", () => {
         },
         {
           name: "MultiEmbed",
-          extract: () => extractMultiEmbed(MOVIE_INCEPTION.tmdbId, undefined, undefined, undefined, "movie"),
+          extract: () => extractMultiEmbed(MOVIE_INCEPTION.tmdbId, "movie"),
         },
         {
           name: "DLHD",

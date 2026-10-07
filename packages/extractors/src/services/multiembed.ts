@@ -3,10 +3,9 @@
  *
  * Reverse-engineered extraction chain:
  *   1. api.2embed.cc/movie?tmdb_id={id}        → IMDB ID + metadata
- *   2. www.2embed.cc/embed/{imdb_id}            → server list (HTML dropdown)
- *   3. streamsrcs.2embed.cc/xps?imdb={imdb_id}  → JS redirect
- *   4. play.xpass.top/e/movie/{imdb_id}         → JWPlayer + playlist URLs
- *   5. play.xpass.top/mdata/{id}/.../playlist.json → m3u8 sources
+ *   2. www.2embed.cc/embed/{imdb_id} → current Vsrc/Videm/Vcr server list
+ *   3. Direct XPS fallback → player dataUrl → authenticated AES-GCM server list
+ *   4. play.xpass.top/.../playlist.json → m3u8 sources
  *
  * Server types (parsed from embed page):
  *   - Swish → 2vcdn.skin/e/{hash}
@@ -21,6 +20,7 @@
  */
 
 import type { StreamSource, SubtitleTrack } from "@flyx/core";
+import { createHash, createDecipheriv } from "node:crypto";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ const UA =
 interface EmbedServer {
   name: string;
   url: string;
-  type: "swish" | "xps" | "vesy" | "vcr";
+  type: "swish" | "xps" | "vesy" | "vcr" | "vsrc" | "videm";
 }
 
 interface PlaylistSource {
@@ -55,6 +55,67 @@ interface BackupServer {
   name: string;
   url: string;
   dl: boolean;
+}
+
+/** Current XPS player protocol: nonce || AES-GCM ciphertext || tag.
+ * The public build identifier is part of the response-key derivation. */
+export function decodeXpsSources(payload: string, dataUrl: URL): BackupServer[] {
+  const token = dataUrl.searchParams.get("token");
+  if (!token || payload.length > 2 * 1024 * 1024) throw new Error("Invalid XPS source response");
+  const bytes = Buffer.from(payload.trim(), "base64url");
+  if (bytes.length < 28) throw new Error("Truncated XPS source response");
+  const key = createHash("sha256")
+    .update(`spv3-data-response|spv3-build-1787821613-50e5fc97c9dce367|${dataUrl.pathname}|${token}`)
+    .digest();
+  const decipher = createDecipheriv("aes-256-gcm", key, bytes.subarray(0, 12));
+  decipher.setAuthTag(bytes.subarray(-16));
+  const decoded: unknown = JSON.parse(Buffer.concat([
+    decipher.update(bytes.subarray(12, -16)), decipher.final(),
+  ]).toString("utf8"));
+  if (!Array.isArray(decoded)) throw new Error("Invalid XPS source list");
+  return decoded.filter((s): s is BackupServer => !!s && typeof s.url === "string");
+}
+
+/** Vsrc.buzz and Videm use the same player protocol, with different API bases. */
+async function extractVidemServer(embedUrl: string): Promise<StreamSource[]> {
+  const base = new URL(embedUrl).origin;
+  if (base !== "https://vidsrc.buzz" && base !== "https://videm.xyz") return [];
+  let cookie = "";
+  const read = async (url: string) => {
+    const response = await fetch(url, {
+      headers: { "User-Agent": UA, Referer: embedUrl, Cookie: cookie },
+      signal: AbortSignal.timeout(12000), redirect: "error",
+    });
+    const cookies = response.headers.getSetCookie();
+    if (cookies.length) cookie = cookies.map((c) => c.split(";")[0]).join("; ");
+    if (!response.ok) throw new Error(`Videm HTTP ${response.status}`);
+    return response.text();
+  };
+  const html = await read(embedUrl);
+  const match = html.match(/var Q\s*=\s*(\{[^\n]+?\});/);
+  if (!match) return [];
+  const config = JSON.parse(match[1]!) as {
+    type: string; id: string; s: number; e: number; t: string;
+    ssr?: { servers?: Array<{ ref: string; name?: string }> };
+  };
+  const api = `${base}${base === "https://vidsrc.buzz" ? "/pl" : ""}/api.php`;
+  let servers = config.ssr?.servers;
+  if (!servers?.length) {
+    const params = new URLSearchParams({ a: "sources", type: config.type, id: config.id, s: String(config.s), e: String(config.e), t: config.t });
+    servers = (JSON.parse(await read(`${api}?${params}`)) as { servers?: typeof servers }).servers;
+  }
+  for (const server of (servers ?? []).slice(0, 3)) {
+    try {
+      const params = new URLSearchParams({ a: "play", ref: server.ref, t: config.t });
+      const data = JSON.parse(await read(`${api}?${params}`)) as { url?: string };
+      if (data.url) {
+        const url = new URL(data.url, base);
+        if (url.protocol !== "https:" && url.protocol !== "http:") continue;
+        return [{ url: url.href, type: "hls", quality: "Auto", title: `2embed ${server.name || "Videm"}`, referer: `${base}/`, requiresSegmentProxy: true }];
+      }
+    } catch { /* another server may still work */ }
+  }
+  return [];
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -111,20 +172,23 @@ async function getImdbId(
 
 // ── Step 2: Parse server list from embed page ────────────────
 
-function parseServersFromEmbed(html: string): EmbedServer[] {
+export function parseServersFromEmbed(html: string): EmbedServer[] {
   const servers: EmbedServer[] = [];
 
   // Extract onclick handlers from the dropdown
   // Pattern: onclick="go('https://streamsrcs.2embed.cc/{type}?...')"
-  const onclickRegex =
-    /onclick="go\('(https:\/\/streamsrcs\.2embed\.cc\/([^?]+)\?([^']*))'\)"/g;
+  const onclickRegex = /onclick="go\('(https:\/\/[^']+)'\)"/g;
   let match;
   while ((match = onclickRegex.exec(html)) !== null) {
     const url = match[1]!;
-    const path = match[2]!;
+    const parsed = new URL(url);
+    const path = parsed.pathname.slice(1);
 
     let type: EmbedServer["type"];
-    if (path.startsWith("swish")) type = "swish";
+    if (parsed.hostname === "vidsrc.buzz") type = "vsrc";
+    else if (parsed.hostname === "videm.xyz") type = "videm";
+    else if (parsed.hostname !== "streamsrcs.2embed.cc") continue;
+    else if (path.startsWith("swish")) type = "swish";
     else if (path.startsWith("xps")) type = "xps";
     else if (path.startsWith("vesy")) type = "vesy";
     else if (path.startsWith("vcr")) type = "vcr";
@@ -140,12 +204,15 @@ function parseServersFromEmbed(html: string): EmbedServer[] {
   const datasrcMatch = html.match(/data-src="([^"]+)"/);
   if (datasrcMatch?.[1] && !servers.some((s) => s.url === datasrcMatch[1])) {
     const url = datasrcMatch[1]!;
-    let type: EmbedServer["type"] = "swish";
-    if (url.includes("/xps")) type = "xps";
-    else if (url.includes("/vesy")) type = "vesy";
-    else if (url.includes("/vcr")) type = "vcr";
+    let type: EmbedServer["type"] | undefined;
+    if (url.startsWith("https://vidsrc.buzz/")) type = "vsrc";
+    else if (url.startsWith("https://videm.xyz/")) type = "videm";
+    else if (url.startsWith("https://streamsrcs.2embed.cc/swish")) type = "swish";
+    else if (url.startsWith("https://streamsrcs.2embed.cc/xps")) type = "xps";
+    else if (url.startsWith("https://streamsrcs.2embed.cc/vesy")) type = "vesy";
+    else if (url.startsWith("https://streamsrcs.2embed.cc/vcr")) type = "vcr";
 
-    servers.unshift({
+    if (type) servers.unshift({
       name: type === "swish" ? "2embed" : type.charAt(0).toUpperCase() + type.slice(1),
       url,
       type,
@@ -171,6 +238,9 @@ function resolveStreamSrcUrl(server: EmbedServer, mediaType = "movie"): string {
   const contentPath = mediaType === "tv" ? "tv" : "movie";
 
   switch (server.type) {
+    case "vsrc":
+    case "videm":
+      return server.url;
     case "swish": {
       // swish.js: 'https://2vcdn.skin/e/' + myUrl
       // Note: swish only available for movies, not TV
@@ -194,12 +264,14 @@ function resolveStreamSrcUrl(server: EmbedServer, mediaType = "movie"): string {
     case "vesy": {
       // vesy.js: 'https://player.videasy.to/movie/' + myUrl
       const tmdb = params["tmdb"] || "";
-      return `https://player.videasy.to/${contentPath}/${tmdb}?color=FFFFFF`;
+      const episodePath = mediaType === "tv" ? `/${params["s"] || "1"}/${params["e"] || "1"}` : "";
+      return `https://player.videasy.to/${contentPath}/${tmdb}${episodePath}?color=FFFFFF`;
     }
     case "vcr": {
       // vcr.js: 'https://vidcore.net/movie/' + myUrl
       const tmdb = params["tmdb"] || "";
-      return `https://vidcore.net/${contentPath}/${tmdb}?autoplay=true`;
+      const episodePath = mediaType === "tv" ? `/${params["s"] || "1"}/${params["e"] || "1"}` : "";
+      return `https://vidcore.net/${contentPath}/${tmdb}${episodePath}?autoplay=true`;
     }
     default:
       return server.url;
@@ -316,10 +388,12 @@ async function fetchPlaylistSources(
         if (source.file.includes("/video/error") || source.file.includes("/error")) continue;
         if (!source.file.startsWith("http") && !source.file.startsWith("/")) continue;
         sources.push({
-          url: source.file,
+          url: new URL(source.file, fullUrl).href,
           quality: source.label || "Auto",
           type: source.type === "hls" || source.file.includes(".m3u8") ? "hls" : "mp4",
           title: `2embed ${source.label || source.id || ""}`.trim(),
+          referer,
+          requiresSegmentProxy: true,
         });
       }
     }
@@ -385,9 +459,10 @@ export async function extractMultiEmbed(
     // 2embed supports BOTH IMDB IDs and TMDB IDs natively.
     // For TV, use TMDB ID directly to skip the IMDB lookup API call.
     let embedPath: string;
+    let imdbId: string | null = null;
     if (mediaType === "movie") {
       // Movies: prefer IMDB ID (API provides richer metadata)
-      const imdbId = await getImdbId(tmdbId, mediaType);
+      imdbId = await getImdbId(tmdbId, mediaType);
       embedPath = imdbId
         ? `/embed/${imdbId}`
         : `/embed/${tmdbId}`;
@@ -403,11 +478,17 @@ export async function extractMultiEmbed(
     });
 
     const servers = parseServersFromEmbed(embedHtml);
-    if (!servers.length) return empty;
+    // XPS remains available directly even when omitted from the current menu.
+    if (!servers.some((s) => s.type === "xps") && (mediaType === "tv" || imdbId)) {
+      const params = mediaType === "tv"
+        ? new URLSearchParams({ tmdb: String(tmdbId), s: String(season ?? 1), e: String(episode ?? 1) })
+        : new URLSearchParams({ imdb: imdbId! });
+      servers.push({ name: "XPS", type: "xps", url: `https://streamsrcs.2embed.cc/xps?${params}` });
+    }
 
     // ── Step 3: Try XPS first (most backends), fall back to others ──
     // Prefer XPS → Swish → Vesy → Vcr
-    const priorityOrder: EmbedServer["type"][] = ["xps", "swish", "vesy", "vcr"];
+    const priorityOrder: EmbedServer["type"][] = ["xps", "vsrc", "videm", "swish", "vesy", "vcr"];
     const allSources: StreamSource[] = [];
     let allSubtitles: SubtitleTrack[] = [];
 
@@ -428,6 +509,12 @@ export async function extractMultiEmbed(
           if (result.subtitles.length) allSubtitles = result.subtitles;
           if (result.sources.length) {
             allSources.push(...result.sources);
+            break;
+          }
+        } else if (server.type === "vsrc" || server.type === "videm") {
+          const result = await extractVidemServer(server.url);
+          if (result.length) {
+            allSources.push(...result);
             break;
           }
         } else {
@@ -515,7 +602,8 @@ export async function extractMultiEmbed(
       });
 
     return { sources: deduped, subtitles: allSubtitles };
-  } catch {
+  } catch (error) {
+    console.warn(`[MultiEmbed] Extraction failed: ${(error as Error).message}`);
     return empty;
   }
 }
@@ -536,7 +624,16 @@ async function followXpsChain(
     headers: { ...h, Referer: referer },
   });
 
-  const { backups, subUrl, primaryPlaylist } = parseXpsPage(xpsHtml);
+  const { backups, subUrl, primaryPlaylist, dataUrl } = parseXpsPage(xpsHtml);
+  if (dataUrl) {
+    const url = new URL(dataUrl, xpsBase);
+    if (url.origin !== xpsBase || !url.pathname.startsWith("/data/")) throw new Error("Unexpected XPS data URL");
+    const payload = await fetchText(url.href, { headers: { ...h, Referer: xpsUrl } });
+    backups.unshift(...decodeXpsSources(payload, url));
+  }
+  // TIK currently serves valid manifests but rejects segment requests. Prefer
+  // the VIP CDN, whose movie and TV segments are usable through our proxy.
+  backups.sort((a, b) => Number(/^VIP\b/i.test(b.name || "")) - Number(/^VIP\b/i.test(a.name || "")));
 
   const subtitles: SubtitleTrack[] = [];
   if (subUrl) {

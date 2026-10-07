@@ -1,5 +1,5 @@
 /**
- * Stream URL proxy helper — routes CDN URLs through CF workers when needed.
+ * Stream URL proxy helper — preserves CDN headers and IP-bound tokens locally.
  * Ported and simplified from Flyx 2.0 VideoPlayer.applyStreamProxy.
  */
 
@@ -7,6 +7,8 @@ export function applyStreamProxy(
   sourceUrl: string,
   providerName: string,
   requiresProxy?: boolean,
+  referer?: string,
+  origin?: string,
 ): string {
   if (!sourceUrl) return sourceUrl;
 
@@ -26,6 +28,15 @@ export function applyStreamProxy(
     sourceUrl.includes("aniwatchtv.site/media/")
   ) {
     return sourceUrl;
+  }
+
+  // Keep token generation and CDN requests on the extraction server's IP.
+  // The local proxy also preserves Referer/Origin and signs nested HLS URLs.
+  if (requiresProxy || referer || origin) {
+    const params = new URLSearchParams({ url: sourceUrl });
+    if (referer) params.set("referer", referer);
+    if (origin) params.set("origin", origin);
+    return `/api/stream/proxy?${params}`;
   }
 
   const isVideasyCdn =

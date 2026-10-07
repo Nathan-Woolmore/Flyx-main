@@ -1,8 +1,9 @@
 /**
  * VidSrc / VSEmbed extractor.
  *
- * Extraction chain (2026 — rewritten after cloudorchestranova dropped /rcp/):
- *   1. data.vidsrcme.ru/api.php?type={movie|tv}&tmdb={id}&stream_urls
+ * Extraction chain (October 2026):
+ *   1. vidsrc.sh/vs_src.php -> gated player -> single-use API token
+ *   2. data.vidsrc.sh/api.php?...&stream_urls&api_token=...
  *   2. Response has encrypted `stream_urls` (base64 ChaCha20 nonce||ciphertext)
  *      + `vs` decryptor: { w: <window>, wasm_url: "<url>" }
  *   3. Fetch WASM module, instantiate → alloc(size) + decrypt(ptr, len)
@@ -10,7 +11,7 @@
  *
  * Security model:
  *   - ChaCha20 stream cipher with per-5-min-window WASM decryptor
- *   - Some streams require IP-bound tokens (gen_token_url) — unsupported server-side
+ *   - CDN tokens are IP-bound; playback uses the same server via the stream proxy
  *   - API checks Referer header (cloudorchestranova.com)
  */
 
@@ -20,7 +21,9 @@ import { MAX_WASM_BYTES, runWasmDecrypt } from "./wasm-sandbox";
 
 // ── Constants ────────────────────────────────────────────────
 
-const API_BASE = "https://data.vidsrcme.ru";
+const API_BASE = "https://data.vidsrc.sh";
+const EMBED_BASE = "https://vidsrc.sh";
+const PLAYER_BASE = "https://cloudorchestranova.com";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
@@ -55,8 +58,8 @@ const WASM_CACHE_MAX = 8;
 const wasmCache = new Map<string, Promise<Uint8Array>>();
 
 /** Hosts the decryptor may be downloaded from (the API host's domain). */
-const WASM_HOST_SUFFIX = ".vidsrcme.ru";
-const WASM_HOSTS = new Set([new URL(API_BASE).hostname]);
+const WASM_HOST_SUFFIXES = [".vidsrc.sh", ".vidsrcme.ru"];
+const WASM_HOSTS = new Set([new URL(API_BASE).hostname, "data.vidsrcme.ru"]);
 
 /** Resolve + pin the upstream-chosen WASM URL to https on the VidSrc API domain. */
 export function validateWasmUrl(raw: string): URL {
@@ -65,7 +68,7 @@ export function validateWasmUrl(raw: string): URL {
   if (u.username || u.password || (u.port && u.port !== "443")) {
     throw new Error("WASM URL has unexpected credentials or port");
   }
-  if (!WASM_HOSTS.has(u.hostname) && !u.hostname.endsWith(WASM_HOST_SUFFIX)) {
+  if (!WASM_HOSTS.has(u.hostname) && !WASM_HOST_SUFFIXES.some((suffix) => u.hostname.endsWith(suffix))) {
     throw new Error(`WASM URL host not allowed: ${u.hostname}`);
   }
   return u;
@@ -179,6 +182,62 @@ const empty = (): { sources: StreamSource[]; subtitles: SubtitleTrack[] } => ({
   subtitles: [],
 });
 
+/** Follow the public embed bootstrap. API tokens are IP-bound and single-use;
+ * never cache a player page or share its token between extraction requests. */
+async function getStreamApi(
+  tmdbId: number,
+  mediaType: string,
+  season?: number,
+  episode?: number,
+): Promise<URL> {
+  const params = new URLSearchParams({ type: mediaType, id: String(tmdbId) });
+  if (mediaType === "tv") {
+    params.set("season", String(season ?? 1));
+    params.set("episode", String(episode ?? 1));
+  }
+  const read = async (url: URL, referer: string) => {
+    const response = await fetch(url, {
+      headers: { "User-Agent": UA, Referer: referer },
+      signal: AbortSignal.timeout(15000),
+      redirect: "error",
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`Player bootstrap HTTP ${response.status}`);
+    return response.text();
+  };
+  const pinPlayer = (raw: string) => {
+    const url = new URL(raw, PLAYER_BASE);
+    if (url.origin !== PLAYER_BASE || url.username || url.password || !url.pathname.startsWith("/embed/")) {
+      throw new Error("Unexpected VidSrc player URL");
+    }
+    return url;
+  };
+  const frame = JSON.parse(await read(new URL(`${EMBED_BASE}/vs_src.php?${params}`), `${EMBED_BASE}/`)) as { src?: string };
+  if (!frame.src) throw new Error("VidSrc embed did not return a player");
+  const innerUrl = pinPlayer(frame.src);
+  const inner = await read(innerUrl, `${EMBED_BASE}/`);
+  const cfgMatch = inner.match(/window\.CFG\s*=\s*(\{[^\n]+?\});/);
+  if (!cfgMatch) throw new Error("VidSrc player configuration missing");
+  const cfg = JSON.parse(cfgMatch[1]!) as { playerUrl?: string };
+  if (!cfg.playerUrl) throw new Error("VidSrc player URL missing");
+  const player = await read(pinPlayer(cfg.playerUrl), innerUrl.href);
+  const configMatch = player.match(/window\.CONFIG\s*=\s*(\{[^\n]+?\});/);
+  if (!configMatch) throw new Error("VidSrc stream configuration missing");
+  const config = JSON.parse(configMatch[1]!) as { api?: string; streamBase?: string; apiToken?: string };
+  if (!config.apiToken) throw new Error("VidSrc API token missing");
+  const api = new URL(config.api || config.streamBase || "", API_BASE);
+  if (api.origin !== API_BASE || api.pathname !== "/api.php" || api.username || api.password) {
+    throw new Error("Unexpected VidSrc API URL");
+  }
+  api.searchParams.set("stream_urls", "");
+  if (mediaType === "tv") {
+    api.searchParams.set("season", String(season ?? 1));
+    api.searchParams.set("episode", String(episode ?? 1));
+  }
+  api.searchParams.set("api_token", config.apiToken);
+  return api;
+}
+
 export async function extractVidSrc(
   tmdbId: number,
   mediaType = "movie",
@@ -188,17 +247,7 @@ export async function extractVidSrc(
   if (!tmdbId) return empty();
 
   try {
-    // 1. Build API URL with stream_urls flag
-    const params = new URLSearchParams({
-      type: mediaType,
-      tmdb: String(tmdbId),
-      stream_urls: "",
-    });
-    if (mediaType === "tv") {
-      if (season !== undefined) params.set("season", String(season));
-      if (episode !== undefined) params.set("episode", String(episode));
-    }
-    const apiUrl = `${API_BASE}/api.php?${params.toString()}`;
+    const apiUrl = await getStreamApi(tmdbId, mediaType, season, episode);
 
     // 2. Fetch the stream-data API
     const r = await fetch(apiUrl, {
@@ -207,6 +256,9 @@ export async function extractVidSrc(
         Referer: "https://cloudorchestranova.com/",
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(15000),
+      redirect: "error",
+      cache: "no-store",
     });
 
     if (!r.ok) {
@@ -237,11 +289,10 @@ export async function extractVidSrc(
       return empty();
     }
 
-    if (!streamUrls.length) {
-      console.warn("[VidSrc] Decrypted stream URLs array is empty");
-      return empty();
-    }
-
+    streamUrls = streamUrls.filter((url) => {
+      if (typeof url !== "string") return false;
+      try { return ["https:", "http:"].includes(new URL(url.trim()).protocol); } catch { return false; }
+    });
     if (!streamUrls.length) {
       console.warn("[VidSrc] Decrypted stream URLs array is empty");
       return empty();

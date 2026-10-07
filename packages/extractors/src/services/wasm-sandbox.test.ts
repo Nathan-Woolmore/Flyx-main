@@ -167,13 +167,15 @@ describe("sanitizeWasmBinary memory caps", () => {
 describe("validateWasmUrl", () => {
   it("accepts the VidSrc API host over https", () => {
     expect(validateWasmUrl("https://data.vidsrcme.ru/wasm.php?w=1").hostname).toBe("data.vidsrcme.ru");
-    expect(validateWasmUrl("/wasm.php?w=1").hostname).toBe("data.vidsrcme.ru");
+    expect(validateWasmUrl("https://data.vidsrc.sh/wasm.php?w=1").hostname).toBe("data.vidsrc.sh");
+    expect(validateWasmUrl("/wasm.php?w=1").hostname).toBe("data.vidsrc.sh");
   });
 
   it("rejects other hosts, schemes and credentials", () => {
     expect(() => validateWasmUrl("http://data.vidsrcme.ru/wasm.php")).toThrow(/https/);
     expect(() => validateWasmUrl("https://evil.example/wasm")).toThrow(/not allowed/);
     expect(() => validateWasmUrl("https://vidsrcme.ru.evil.example/wasm")).toThrow(/not allowed/);
+    expect(() => validateWasmUrl("https://vidsrc.sh.evil.example/wasm")).toThrow(/not allowed/);
     expect(() => validateWasmUrl("https://127.0.0.1/wasm")).toThrow(/not allowed/);
     expect(() => validateWasmUrl("https://u:p@data.vidsrcme.ru/wasm")).toThrow(/credentials/);
     expect(() => validateWasmUrl("file:///etc/passwd")).toThrow(/https/);

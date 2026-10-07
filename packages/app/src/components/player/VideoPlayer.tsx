@@ -284,7 +284,7 @@ export default function VideoPlayer({
               skipOutro?: PlayerSource['skipOutro'];
             }) => ({
               title: s.title || s.quality || 'Stream',
-              url: applyStreamProxy(s.url, usedProvider, s.requiresSegmentProxy),
+              url: applyStreamProxy(s.url, usedProvider, s.requiresSegmentProxy, s.referer, s.origin),
               quality: s.quality,
               provider: usedProvider,
               type: (s.type as PlayerSource['type']) || 'hls',
@@ -338,10 +338,11 @@ export default function VideoPlayer({
               usedProvider = c.name;
               list = valid.map((s) => ({
                 title: s.title || s.quality || `${c.name} source`,
-                url: applyStreamProxy(s.url, c.name, s.requiresSegmentProxy),
+                url: applyStreamProxy(s.url, c.name, s.requiresSegmentProxy, s.referer, s.origin),
                 quality: s.quality,
                 provider: c.name,
                 type: 'hls' as const,
+                requiresSegmentProxy: s.requiresSegmentProxy,
                 skipIntro: s.skipIntro,
                 skipOutro: s.skipOutro,
                 rawUrl: s.url,

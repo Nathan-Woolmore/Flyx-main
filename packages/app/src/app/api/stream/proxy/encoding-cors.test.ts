@@ -91,6 +91,27 @@ describe("/api/stream/proxy url decoding", () => {
   });
 });
 
+describe("complete HLS bodies", () => {
+  it("does not truncate extensionless segments to an invented 2 MB range", async () => {
+    session.current = { sub: "u1" };
+    const bytes = new Uint8Array(2 * 1024 * 1024 + 188).fill(0x47);
+    fetchSpy.mockResolvedValueOnce(new Response(bytes, { headers: { "content-type": "text/html" } }));
+    const res = await proxyGET(req(`/api/stream/proxy?${new URLSearchParams({ url: `${CDN}/full-segment`, referer: "https://player.example/" })}`));
+    expect(new Headers(fetchSpy.mock.calls[0]![1].headers).has("range")).toBe(false);
+    expect(res.headers.get("content-type")).toBe("application/octet-stream");
+    expect((await res.arrayBuffer()).byteLength).toBe(bytes.length);
+  });
+
+  it("still forwards an explicit seek range", async () => {
+    session.current = { sub: "u1" };
+    fetchSpy.mockResolvedValueOnce(new Response("segment", { status: 206, headers: { "content-type": "video/mp4", "content-range": "bytes 100-106/1000" } }));
+    const res = await proxyGET(req(`/api/stream/proxy?url=${encodeURIComponent(`${CDN}/seek.mp4`)}`, { headers: { Range: "bytes=100-106" } }));
+    expect(new Headers(fetchSpy.mock.calls[0]![1].headers).get("range")).toBe("bytes=100-106");
+    expect(res.status).toBe(206);
+    expect(await res.text()).toBe("segment");
+  });
+});
+
 describe("signature-only CORS", () => {
   const ok = () => new Response("x", { status: 200, headers: { "content-type": "video/mp2t" } });
 
