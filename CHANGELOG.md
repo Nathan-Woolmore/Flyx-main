@@ -2,6 +2,16 @@
 
 All notable changes to Flyx are documented in this file.
 
+## [3.2.10] - 2026-10-09
+
+### Added
+
+- **VidLove for movies and TV.** Select VidLove in the player to use its available quality options and subtitles. It also participates in automatic provider fallback, with streams routed through Flyx's local proxy.
+
+### Fixed
+
+- **MP4 format is preserved during player fallback.** Sources such as VidLove's MP4 streams are no longer incorrectly treated as HLS when the player retries extraction.
+
 ## [3.2.9] - 2026-10-07
 
 ### Fixed

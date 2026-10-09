@@ -5,6 +5,7 @@
 // VOD Extractors
 export { extractVideasy } from "./videasy";
 export { extractVidLink } from "./vidlink";
+export { extractVidLove } from "./vidlove";
 export { extractVidSrc } from "./vidsrc";
 export { extractMultiEmbed } from "./multiembed";
 export { extractBingeBox } from "./bingebox";

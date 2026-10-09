@@ -181,8 +181,8 @@ function WatchContent() {
 
 
   // Provider state for mobile player
-  const [currentProvider, setCurrentProvider] = useState<'videasy' | 'vidsrc' | 'multiembed' | 'animex' | undefined>(undefined);
-  const [availableProviders, setAvailableProviders] = useState<Array<'videasy' | 'vidsrc' | 'multiembed' | 'animex'>>([]);
+  const [currentProvider, setCurrentProvider] = useState<'videasy' | 'vidsrc' | 'multiembed' | 'vidlove' | 'animex' | undefined>(undefined);
+  const [availableProviders, setAvailableProviders] = useState<Array<'videasy' | 'vidsrc' | 'multiembed' | 'vidlove' | 'animex'>>([]);
   const [loadingProvider, setLoadingProvider] = useState(false);
 
   // Anime state for mobile player
@@ -418,7 +418,7 @@ function WatchContent() {
       }
 
       // Check provider availability first
-      let providerAvailability = { videasy: true, vidsrc: true, multiembed: true, animex: true };
+      let providerAvailability = { videasy: true, vidsrc: true, multiembed: true, vidlove: true, animex: true };
       try {
         const providerRes = await fetch('/api/providers');
         const providerData = await providerRes.json();
@@ -426,6 +426,7 @@ function WatchContent() {
           videasy: providerData.providers?.videasy?.enabled ?? true,
           vidsrc: providerData.providers?.vidsrc?.enabled ?? true,
           multiembed: providerData.providers?.multiembed?.enabled ?? true,
+          vidlove: providerData.providers?.vidlove?.enabled ?? true,
           animex: providerData.providers?.animex?.enabled ?? true,
         };
       } catch (e) {
@@ -436,10 +437,10 @@ function WatchContent() {
       const userSettings = getProviderSettings();
       const userOrder = userSettings.providerOrder || [];
       const disabledProviders = new Set(userSettings.disabledProviders || []);
-      type WatchProvider = 'videasy' | 'vidsrc' | 'multiembed' | 'animex';
+      type WatchProvider = 'videasy' | 'vidsrc' | 'multiembed' | 'vidlove' | 'animex';
       const providerOrder: WatchProvider[] = [];
 
-      const allKnownProviders: WatchProvider[] = ['videasy', 'vidsrc', 'multiembed', 'animex'];
+      const allKnownProviders: WatchProvider[] = ['videasy', 'vidsrc', 'multiembed', 'vidlove', 'animex'];
 
       // Add providers from user's preferred order
       for (const p of userOrder) {
@@ -468,7 +469,7 @@ function WatchContent() {
 
           let validSources: any[] = [];
 
-          if (provider === 'videasy' || provider === 'vidsrc' || provider === 'multiembed') {
+          if (provider === 'videasy' || provider === 'vidsrc' || provider === 'multiembed' || provider === 'vidlove') {
             // VOD: use unified stream extraction API
             const params = new URLSearchParams({ tmdbId: contentId, mediaType: mediaType as string });
             if (title) params.set('title', title);
@@ -589,7 +590,7 @@ function WatchContent() {
   }, [fetchMobileStream]);
 
   // Handle provider change for mobile player
-  const handleProviderChange = useCallback(async (provider: 'videasy' | 'vidsrc' | 'multiembed' | 'animex', currentTime: number = 0) => {
+  const handleProviderChange = useCallback(async (provider: 'videasy' | 'vidsrc' | 'multiembed' | 'vidlove' | 'animex', currentTime: number = 0) => {
     setMobileResumeTime(currentTime);
     setLoadingProvider(true);
     console.log('[WatchPage] Provider change to:', provider, 'saving time:', currentTime);
@@ -597,7 +598,7 @@ function WatchContent() {
     try {
       let validSources: any[] = [];
 
-      if (provider === 'videasy' || provider === 'vidsrc' || provider === 'multiembed') {
+      if (provider === 'videasy' || provider === 'vidsrc' || provider === 'multiembed' || provider === 'vidlove') {
         const params = new URLSearchParams({ tmdbId: contentId, mediaType: mediaType as string, provider });
         if (title) params.set('title', title);
         if (seasonId) params.set('season', String(seasonId));

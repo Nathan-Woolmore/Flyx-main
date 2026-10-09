@@ -18,6 +18,7 @@ export const PROVIDER_PRIORITIES = {
   // === Primary VOD (movies + TV) ===
   VIDEASY: 1,
   VIDLINK: 2,
+  VIDLOVE: 4.5,
   VIDSRC: 3,
   MULTI_EMBED: 4,
   BINGEBOX: 5,

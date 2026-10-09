@@ -13,6 +13,7 @@ import type { StreamSource } from "@flyx/core";
 
 // Real extraction functions
 import { extractVideasy } from "./videasy";
+import { extractVidLove } from "./vidlove";
 import { extractVidSrc } from "./vidsrc";
 import { extractMultiEmbed } from "./multiembed";
 import { extractDLHD } from "./dlhd";
@@ -101,6 +102,17 @@ describe("VidSrc", () => {
     },
     API_TIMEOUT,
   );
+});
+
+describe("VidLove", () => {
+  it.each([
+    { tmdbId: 550, mediaType: "movie" as const, season: undefined, episode: undefined },
+    { tmdbId: 1396, mediaType: "tv" as const, season: 1, episode: 1 },
+  ])("extracts $mediaType sources", async ({ tmdbId, mediaType, season, episode }) => {
+    const result = await extractVidLove(tmdbId, mediaType, season, episode);
+    expect(result.sources.length).toBeGreaterThan(0);
+    for (const source of result.sources) assertStreamSourceShape(source, "VidLove");
+  }, API_TIMEOUT);
 });
 
 describe("MultiEmbed", () => {

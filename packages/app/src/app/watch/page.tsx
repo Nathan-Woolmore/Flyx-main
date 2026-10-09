@@ -137,6 +137,7 @@ interface CatalogProvider {
 const VOD_PROVIDERS: CatalogProvider[] = [
   // Order: most reliable first for UX (not necessarily pipeline priority)
   { id: "vidsrc", label: "VidSrc", blurb: "VSEmbed · API · ChaCha20", kind: "vod" },
+  { id: "vidlove", label: "VidLove", blurb: "Movies & TV", kind: "vod" },
   { id: "multiembed", label: "2Embed", blurb: "XPS · multi-CDN", kind: "vod" },
   { id: "videasy", label: "Videasy", blurb: "Speedrace · multi-CDN", kind: "vod" },
 ];

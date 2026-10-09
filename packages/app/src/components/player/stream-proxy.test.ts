@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyStreamProxy } from "./stream-proxy";
 
 describe("playback proxy routing", () => {
-  it.each(["videasy", "vidsrc", "multiembed"])("keeps %s CDN requests on the local server with their headers", (provider) => {
+  it.each(["videasy", "vidsrc", "multiembed", "vidlove"])("keeps %s CDN requests on the local server with their headers", (provider) => {
     const media = "https://cdn.example/master.m3u8?key=a%2Bb&quality=hd";
     const proxied = new URL(applyStreamProxy(media, provider, true, "https://player.example/", "https://player.example"), "http://localhost:3000");
     expect(proxied.pathname).toBe("/api/stream/proxy");

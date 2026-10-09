@@ -301,10 +301,10 @@ export default function VideoPlayer({
       }
 
       if (!list.length) {
-        const clients: Array<{ name: string; run: () => Promise<Array<{ url: string; title?: string; quality?: string; skipIntro?: [number, number]; skipOutro?: [number, number]; requiresSegmentProxy?: boolean; referer?: string; origin?: string }>> }> = [];
+        const clients: Array<{ name: string; run: () => Promise<Array<{ url: string; type?: PlayerSource['type']; title?: string; quality?: string; skipIntro?: [number, number]; skipOutro?: [number, number]; requiresSegmentProxy?: boolean; referer?: string; origin?: string }>> }> = [];
 
-        // VOD: videasy + vidsrc + multiembed via unified extraction API
-        for (const vp of ['videasy', 'vidsrc', 'multiembed']) {
+        // VOD sources use the unified extraction API.
+        for (const vp of ['videasy', 'vidsrc', 'multiembed', 'vidlove']) {
           clients.push({
             name: vp,
             run: async () => {
@@ -341,7 +341,7 @@ export default function VideoPlayer({
                 url: applyStreamProxy(s.url, c.name, s.requiresSegmentProxy, s.referer, s.origin),
                 quality: s.quality,
                 provider: c.name,
-                type: 'hls' as const,
+                type: s.type || 'hls',
                 requiresSegmentProxy: s.requiresSegmentProxy,
                 skipIntro: s.skipIntro,
                 skipOutro: s.skipOutro,

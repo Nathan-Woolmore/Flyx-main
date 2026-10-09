@@ -11,6 +11,7 @@ import type { Provider } from "../registry";
 import { VideasyProvider } from "./videasy";
 import { VidSrcProvider } from "./vidsrc";
 import { MultiEmbedProvider } from "./multiembed";
+import { VidLoveProvider } from "./vidlove";
 
 // Anime Providers
 import { AnimeXProvider } from "./animex";
@@ -36,6 +37,7 @@ function safeRegister(name: string, factory: () => Provider): void {
 safeRegister("videasy", () => new VideasyProvider());
 safeRegister("vidsrc", () => new VidSrcProvider());
 safeRegister("multiembed", () => new MultiEmbedProvider());
+safeRegister("vidlove", () => new VidLoveProvider());
 
 // Anime
 safeRegister("animex", () => new AnimeXProvider());
