@@ -95,8 +95,47 @@ describe("native Cast V2 protocol", () => {
     const load = f.transport.load({ contentId: "http://192.168.1.50/movie.mp4", contentType: "video/mp4" }, 0);
     const mute = f.sent().at(-1);
     f.reply(NS.receiver, { type: "RECEIVER_STATUS", requestId: mute.data.requestId, status: { volume: { muted: false, level: 1 } } });
+    f.socket.write.mockImplementation((bytes) => {
+      const packet = decodeMessage(bytes.subarray(4));
+      if (packet.namespace === NS.receiver) queueMicrotask(() => f.reply(NS.receiver,
+        { type: "RECEIVER_STATUS", requestId: packet.data.requestId, status: { volume: { muted: false, level: 1 } } }));
+    });
     await expect(load).rejects.toThrow("did not confirm silent");
     expect(f.sent().some((packet) => packet.data.type === "LOAD")).toBe(false); f.transport.close();
+  });
+  it("handles TVs that ignore combined level updates and unmute on level changes", async () => {
+    const f = fixture(); f.transport.socket = f.socket; f.transport.transportId = "web-1";
+    let volume = { muted: false, level: 1 };
+    f.socket.write.mockImplementation((bytes) => {
+      const packet = decodeMessage(bytes.subarray(4));
+      if (packet.namespace === NS.receiver) {
+        const update = packet.data.volume;
+        if (update?.muted !== undefined) volume = { ...volume, muted: update.muted };
+        else if (update?.level !== undefined) volume = { level: update.level, muted: false };
+        queueMicrotask(() => f.reply(NS.receiver, { type: "RECEIVER_STATUS", requestId: packet.data.requestId, status: { volume } }));
+      } else if (packet.data.type === "LOAD") {
+        expect(volume).toEqual({ muted: true, level: 0 });
+        queueMicrotask(() => f.reply(NS.media, { type: "MEDIA_STATUS", requestId: packet.data.requestId,
+          status: [{ mediaSessionId: 7, playerState: "PLAYING" }] }, "web-1"));
+      }
+    });
+    await f.transport.load({ contentId: "http://192.168.1.50/movie.mp4", contentType: "video/mp4" }, 0);
+    expect(f.sent().map(p => p.data.type)).toEqual(["SET_VOLUME", "SET_VOLUME", "SET_VOLUME", "SET_VOLUME", "GET_STATUS", "LOAD"]);
+    expect(f.sent().slice(1, 4).map(p => p.data.volume)).toEqual([{ muted: true }, { level: 0 }, { muted: true }]);
+    f.transport.close();
+  });
+  it("fails closed when a receiver reports fixed nonzero volume despite mute", async () => {
+    const f = fixture(); f.transport.socket = f.socket; f.transport.transportId = "web-1";
+    f.socket.write.mockImplementation((bytes) => {
+      const packet = decodeMessage(bytes.subarray(4));
+      queueMicrotask(() => f.reply(NS.receiver, { type: "RECEIVER_STATUS", requestId: packet.data.requestId,
+        status: { volume: { muted: true, level: 0.5 } } }));
+    });
+    await expect(f.transport.load({ contentId: "http://192.168.1.50/movie.mp4", contentType: "video/mp4" }, 0))
+      .rejects.toThrow("muted: true; volume: 0.5");
+    expect(f.sent().filter(p => p.data.type === "GET_STATUS")).toHaveLength(3);
+    expect(f.sent().some(p => p.data.type === "LOAD")).toBe(false);
+    f.transport.close();
   });
   it("clears the media session when the receiver reports idle", async () => {
     const f = await connectedFixture();

@@ -12,6 +12,9 @@ Open a movie, choose **Cast to TV**, then select the receiver. A private IPv4
 address can be entered if Bonjour discovery does not find it.
 
 The receiver must acknowledge both mute and volume zero before every media load.
+If a combined volume update is not acknowledged, Flyx sends separate mute,
+zero-volume, and mute requests, followed by bounded receiver status checks. It
+still refuses all media loads unless both silence conditions are confirmed.
 Local playback pauses when TV media is actually accepted. The native overlay
 provides playback, seeking, stop, mute, and volume controls. An explicitly marked
 silent test package also disables local autoplay and mutes Electron audio; normal
@@ -38,7 +41,7 @@ new files into the signed application bundle.
 ## Validation and remaining limit
 
 - Production standalone build passed.
-- All 129 desktop tests passed, including Cast framing, silent-load acknowledgement,
+- All 131 desktop tests passed, including Cast framing, silent-load acknowledgement,
   device/session lifecycle, IPC origin checks, private-address validation, and
   signed host-proxy URL validation.
 - Application type checking passed; touched player files have zero lint errors
@@ -46,15 +49,18 @@ new files into the signed application bundle.
 - Installed Watch-page picker and paused, muted, zero-volume startup were verified.
 - A separate silent receiver fixture verified playback and transport controls.
 
-Actual movie handoff from the installed application remains unverified. On the
-tested Mac, the installed app still received `EHOSTUNREACH` although the receiver
-port was reachable outside the app; macOS showed neither a Flyx Local Network
-entry nor an approval prompt. The rebuilt primary executable has a distinct UUID, and the installed bundle
-signature remains valid after Home and Watch startup. The receiver still advertises
-Google Cast and its port is reachable, but the corrected app still fails to connect
-with `EHOSTUNREACH` and has no Local Network entry or prompt. Ad-hoc signing is retained;
-Apple recommends an Apple-issued signing identity for reliable permission tracking.
-Do not interpret the standalone fixture result as proof of installed-app casting.
+On the tested Mac, signing the installed app with an existing Apple Development
+identity resolved the earlier `EHOSTUNREACH` connection failure. That local test
+used explicit user approval; no certificate, account, permission grant, or trust
+setting was created. Public packaging still retains ad-hoc signing by default.
+
+The signed compatibility build discovered the receiver, loaded the selected movie
+only after confirmed mute and volume zero, showed advancing remote playback time,
+and acknowledged pause. The TV picture has not yet been confirmed by the user.
+A later control check lost the connection; the receiver port was then unreachable
+in a separate read-only network check. Stable seek/resume/stop verification remains
+pending while the TV is reachable. Do not interpret the standalone fixture result
+or receiver playback state as confirmation of the physical TV picture.
 
 References: [Apple TN3178](https://developer.apple.com/documentation/technotes/tn3178-checking-for-and-resolving-build-uuid-problems),
 [Apple TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy),

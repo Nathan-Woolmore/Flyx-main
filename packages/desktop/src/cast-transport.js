@@ -203,10 +203,29 @@ class CastTransport extends EventEmitter {
   }
 
   async ensureSilent() {
-    const response = await this.request(NS.receiver, { type: "SET_VOLUME", volume: { muted: true, level: 0 } });
-    const volume = response.status?.volume;
-    if (volume?.muted !== true || volume.level !== 0) {
-      throw new Error("The TV did not confirm silent playback. No media was loaded.");
+    this.silentVerified = false;
+    const confirmed = (response) => response.type === "RECEIVER_STATUS" &&
+      response.status?.volume?.muted === true && response.status.volume.level === 0;
+    let response = await this.request(NS.receiver, { type: "SET_VOLUME", volume: { muted: true, level: 0 } });
+    if (!confirmed(response)) {
+      // Receivers may apply only one field from a combined volume update,
+      // and changing the level may clear mute. Follow the sender SDK's separate
+      // mute/volume operations, restore mute, then read the resulting state.
+      for (const volume of [{ muted: true }, { level: 0 }, { muted: true }]) {
+        await this.request(NS.receiver, { type: "SET_VOLUME", volume });
+      }
+      for (let attempt = 0; attempt < 3; attempt++) {
+        response = await this.request(NS.receiver, { type: "GET_STATUS" });
+        if (confirmed(response)) break;
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+    if (!confirmed(response)) {
+      const volume = response.status?.volume;
+      const mute = typeof volume?.muted === "boolean" ? String(volume.muted) : "not reported";
+      const level = Number.isFinite(volume?.level) && volume.level >= 0 && volume.level <= 1
+        ? String(volume.level) : "not reported";
+      throw new Error(`The TV did not confirm silent playback (muted: ${mute}; volume: ${level}). Set the TV's own volume to zero and mute, then reconnect. No media was loaded.`);
     }
     this.silentVerified = true;
   }
