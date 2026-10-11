@@ -11,7 +11,7 @@
  *   5. Copy workspace packages
  */
 
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { cpSync, existsSync, mkdirSync, rmSync, readdirSync, lstatSync, realpathSync, readFileSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -44,7 +44,9 @@ for (const name of readdirSync(APP_DIR)) {
     BUILD_DUMMY_ENV[m[1]] = "dummy-for-build";
   }
 }
-execSync("npx next build", {
+// Keep Next on the same Node runtime as this builder. `npx` can silently
+// select a different global runtime or download a package when missing.
+execFileSync(process.execPath, [join(ROOT, "node_modules", "next", "dist", "bin", "next"), "build"], {
   cwd: APP_DIR,
   env: { ...process.env, ...BUILD_DUMMY_ENV, FLYX_STANDALONE: "1" },
   stdio: "inherit",

@@ -147,6 +147,9 @@ function runAfterPack(ctx, deps = {}) {
 }
 
 module.exports = async function afterPack(ctx) {
+  // Apple TN3178: distinct apps require distinct primary-executable UUIDs.
+  // Re-link from source before signing; framework security fuses are unchanged.
+  require("./rebuild-mac-main.cjs").rebuildMacMain(ctx);
   runAfterPack(ctx);
 };
 module.exports.runAfterPack = runAfterPack;

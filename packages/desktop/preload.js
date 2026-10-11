@@ -11,7 +11,25 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("flyxDesktop", {
   isDesktop: true,
+  // Only this explicitly approved silent test package supplies the flag.
+  silentPlaybackMode: process.argv.includes("--flyx-cast-test"),
   platform: process.platform,
+  // Explicit, typed Cast operations only. Never expose ipcRenderer or a
+  // raw socket/channel/namespace API to the renderer.
+  cast: {
+    discover: () => ipcRenderer.invoke("flyx:cast-discover"),
+    cancelDiscovery: () => ipcRenderer.invoke("flyx:cast-cancel-discovery"),
+    getState: () => ipcRenderer.invoke("flyx:cast-state"),
+    connect: (receiver) => ipcRenderer.invoke("flyx:cast-connect", receiver),
+    load: (media) => ipcRenderer.invoke("flyx:cast-load", media),
+    control: (command) => ipcRenderer.invoke("flyx:cast-control", command),
+    disconnect: () => ipcRenderer.invoke("flyx:cast-disconnect"),
+    onState: (callback) => {
+      const listener = (_event, state) => callback(state);
+      ipcRenderer.on("flyx:cast-state", listener);
+      return () => ipcRenderer.removeListener("flyx:cast-state", listener);
+    },
+  },
   getVersion: () => ipcRenderer.invoke("flyx:get-version"),
   getLANUrls: () => ipcRenderer.invoke("flyx:get-lan-urls"),
   getLocalUrl: () => ipcRenderer.invoke("flyx:get-local-url"),

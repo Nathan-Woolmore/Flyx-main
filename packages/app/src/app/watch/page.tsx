@@ -14,6 +14,7 @@ import {
 } from "react";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useCast } from "@/hooks/useCast";
+import { isSilentDesktopPlayback } from "@/lib/desktop-playback";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import PlayerHelpModal, {
   shouldAutoShowPlayerHelp,
@@ -24,6 +25,7 @@ import PlayerHelpModal, {
 } from "@/components/player/PlayerHelpModal";
 import {
   CastOverlay,
+  DesktopCastPicker,
   CastErrorBanner,
   IconHelp,
   IconCast,
@@ -471,6 +473,8 @@ function WatchInner() {
   const [buffered, setBuffered] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const [silentPlayback, setSilentPlayback] = useState(false);
+  const [playbackPolicyReady, setPlaybackPolicyReady] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [seeking, setSeeking] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -512,6 +516,19 @@ function WatchInner() {
   const stageRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const volumeRef = useRef(1);
+  useEffect(() => {
+    const silent = isSilentDesktopPlayback();
+    if (silent) {
+      const video = videoRef.current;
+      if (video) { video.muted = true; video.volume = 0; video.pause(); }
+      volumeRef.current = 0;
+      setMuted(true);
+      setVolume(0);
+    }
+    setSilentPlayback(silent);
+    setPlaybackPolicyReady(true);
+  }, []);
+
   const seekFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const volumeHudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1803,6 +1820,12 @@ function WatchInner() {
           resumeCleanup = null;
         }
         const play = () => {
+          if (isSilentDesktopPlayback()) {
+            video.muted = true;
+            video.volume = 0;
+            video.pause();
+            return;
+          }
           void video.play().catch(() => undefined);
         };
         const resume = resumeAfterSwitchRef.current;
@@ -2864,7 +2887,8 @@ function WatchInner() {
           ref={videoRef}
           className="cinema-video"
           playsInline
-          autoPlay
+          autoPlay={playbackPolicyReady && !silentPlayback}
+          muted={silentPlayback || muted}
           style={{
             // Keep the frame visible while paused — only hide during initial buffer
             opacity:
@@ -3970,6 +3994,9 @@ function WatchInner() {
         </div>
       )}
 
+      {/* Native desktop picker shares the same session and media handoff. */}
+      {cast.desktopPicker && <DesktopCastPicker picker={cast.desktopPicker} />}
+
       {/* Cast overlay */}
       {/* Up next: countdown card after the episode ends */}
       {upNextCountdown != null && nextEpisode && (
@@ -4042,6 +4069,10 @@ function WatchInner() {
           currentTime={cast.currentTime || currentTime}
           duration={cast.duration || duration}
           isPlaying={cast.playerState === "PLAYING"}
+          volume={cast.volume}
+          isMuted={cast.isMuted}
+          onVolume={cast.setVolume}
+          onMute={cast.toggleMute}
           onPlayPause={cast.playOrPause}
           onSeek={cast.seek}
           onStop={() => {

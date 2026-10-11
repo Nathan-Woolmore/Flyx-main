@@ -68,6 +68,9 @@ const nextConfig: NextConfig = {
   },
   // Standalone output for desktop packaging (bundles Node.js server)
   output: process.env.FLYX_STANDALONE === "1" ? "standalone" : undefined,
+  // Desktop serves from a sealed macOS app bundle. Keep incremental caches
+  // in bounded memory so startup never writes new files into signed resources.
+  experimental: { isrFlushToDisk: process.env.FLYX_STANDALONE !== "1" },
   // Skip type checking during build — type errors are caught by `npm run type-check` separately
   typescript: {
     ignoreBuildErrors: true,

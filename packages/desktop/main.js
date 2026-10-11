@@ -30,6 +30,17 @@ const {
   shell,
 } = require("electron");
 
+// Dev/test profiles never share server data, Chromium cookies or the
+// single-instance lock with the installed application.
+const isCastTest = app.getName() === "Flyx Cast Test" || require("./package.json").flyxCastTest === true;
+const isSilentCastTest = isCastTest || require("./package.json").flyxSilentCastTest === true;
+if (isCastTest) {
+  const testRoot = app.isPackaged ? path.resolve(process.resourcesPath, "../../..") : path.join(__dirname, "..", "..");
+  process.env.FLYX_DATA_DIR = path.join(testRoot, ".flyx-cast-test-data");
+  app.setPath("userData", path.join(testRoot, ".flyx-cast-test-profile"));
+} else if (!app.isPackaged) {
+  app.setPath("userData", path.join(__dirname, "..", "..", ".flyx-dev-profile"));
+}
 // Dev convenience: never touch real data when running unpackaged.
 // Must be set BEFORE paths.js computes DATA_DIR at require time.
 if (!app.isPackaged && !process.env.FLYX_DATA_DIR) {
@@ -43,6 +54,8 @@ const { getLANURLs, getLocalURL, isPortInUse } = require("./src/network");
 const updater = require("./src/updater");
 const ghUpdater = require("./src/github-updater");
 const vlc = require("./src/vlc");
+const { CastService } = require("./src/cast-service");
+const { isTrustedCastSender } = require("./src/cast-security");
 const { migrateLegacyOriginStorage } = require("./src/storage-migration");
 const {
   appOrigin,
@@ -53,7 +66,7 @@ const {
   redactUrls,
 } = require("./src/security");
 
-app.setName("Flyx");
+app.setName(isCastTest ? "Flyx Cast Test" : "Flyx");
 
 // Windows only: stable AppUserModelID so the OS media session (SMTC) and
 // taskbar attribute Flyx's now-playing metadata to this app (matches the
@@ -75,6 +88,7 @@ let restartTimer = null;
 let restartInFlight = false;
 let crashCount = 0;
 let updateInFlight = false;
+let castService = null;
 
 // ── Single instance ──────────────────────────────────────────────
 
@@ -175,7 +189,7 @@ async function onReady() {
   createWindow();
   loadApp();
 
-  if (updater.initUpdater({ onDownloaded: onUpdateDownloaded })) {
+  if (!isSilentCastTest && updater.initUpdater({ onDownloaded: onUpdateDownloaded })) {
     setTimeout(() => updater.checkForUpdates(), 10000);
   }
 
@@ -437,8 +451,13 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      additionalArguments: isSilentCastTest ? ["--flyx-cast-test"] : [],
     },
   });
+
+  // Keep all local app audio silent, even if a player resets its own state.
+  // This does not mirror or change the Mac system audio configuration.
+  if (isSilentCastTest) mainWindow.webContents.setAudioMuted(true);
 
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.on("close", (e) => {
@@ -1001,6 +1020,26 @@ function handleTrusted(channel, handler) {
 }
 
 function registerIpc() {
+  castService = new CastService({
+    getOrigins: () => currentHostname === "0.0.0.0" ? getLANURLs(currentPort).map((item) => item.url) : [],
+  });
+  castService.on("state", (state) => {
+    if (mainWindow && !mainWindow.isDestroyed() &&
+      isTrustedSender({ senderFrame: mainWindow.webContents.mainFrame }, currentPort)) {
+      sendToWindow("flyx:cast-state", state);
+    }
+  });
+  const handleCast = (channel, handler) => handleTrusted(channel, (event, payload) => {
+    if (!isTrustedCastSender(event, mainWindow, currentPort)) throw new Error("Untrusted Cast sender");
+    return handler(payload);
+  });
+  handleCast("flyx:cast-discover", () => castService.discover());
+  handleCast("flyx:cast-cancel-discovery", () => { castService.cancelDiscovery(); return { ok: true }; });
+  handleCast("flyx:cast-state", () => castService.snapshot());
+  handleCast("flyx:cast-connect", (payload) => castService.connect(payload));
+  handleCast("flyx:cast-load", (payload) => castService.load(payload));
+  handleCast("flyx:cast-control", (payload) => castService.control(payload));
+  handleCast("flyx:cast-disconnect", () => castService.disconnect());
   handleTrusted("flyx:get-version", () => app.getVersion());
   handleTrusted("flyx:get-lan-urls", () =>
     currentHostname === "0.0.0.0" ? getLANURLs(currentPort) : [],
@@ -1050,6 +1089,7 @@ app.on("activate", () => showMainWindow());
 
 app.on("will-quit", () => {
   intentionalStop = true;
+  castService?.dispose();
   const child = currentChild;
   // Already exited → its pid may now belong to an unrelated process (PID
   // reuse); signalling or tree-killing it could take down someone else's

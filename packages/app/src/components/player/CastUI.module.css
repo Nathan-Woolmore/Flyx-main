@@ -234,3 +234,21 @@
   font-weight: 700;
   cursor: pointer;
 }
+
+
+.pickerBackdrop { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0,0,0,.78); backdrop-filter: blur(8px); }
+.picker { width: min(520px,100%); max-height: 85vh; overflow: auto; padding: 24px; border: 1px solid rgba(255,255,255,.16); border-radius: 18px; background: #171820; color: #f5f5f7; box-shadow: 0 24px 80px rgba(0,0,0,.55); }
+.pickerHeading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.pickerHeading h2 { margin: 0; font-size: 22px; }
+.picker p { line-height: 1.5; color: #bcbec8; }
+.deviceList { display: grid; gap: 10px; margin: 18px 0; }
+.device { display: flex; align-items: center; gap: 14px; padding: 16px; width: 100%; text-align: left; color: inherit; background: #242631; border: 1px solid #414450; border-radius: 12px; cursor: pointer; }
+.device:hover { border-color: #a390ff; }
+.device span { display: grid; gap: 5px; }
+.device small { color: #bcbec8; }
+.device:disabled { opacity: .5; cursor: wait; }
+.manualAddress { display: grid; gap: 10px; margin-top: 24px; padding-top: 20px; border-top: 1px solid #414450; }
+.manualAddress div { display: flex; gap: 10px; }
+.manualAddress input { min-width: 0; flex: 1; padding: 12px; color: inherit; background: #242631; border: 1px solid #414450; border-radius: 8px; }
+.manualAddress small { color: #bcbec8; line-height: 1.5; }
+.picker .pickerError { color: #ffb1b8; }

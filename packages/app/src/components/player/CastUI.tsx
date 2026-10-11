@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
+import type { DesktopCastPickerState } from '@/lib/desktop-cast';
 import styles from './CastUI.module.css';
 import { formatTime } from './stream-proxy';
 import { IconPause, IconPlay } from './icons';
@@ -68,6 +70,10 @@ interface CastOverlayProps {
   onPlayPause?: () => void;
   onSeek?: (time: number) => void;
   onStop: () => void;
+  volume?: number;
+  isMuted?: boolean;
+  onVolume?: (volume: number) => void;
+  onMute?: () => void;
 }
 
 export function CastOverlay({
@@ -80,6 +86,10 @@ export function CastOverlay({
   onPlayPause,
   onSeek,
   onStop,
+  volume = 1,
+  isMuted = false,
+  onVolume,
+  onMute,
 }: CastOverlayProps) {
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -128,6 +138,69 @@ export function CastOverlay({
             Stop casting
           </button>
         </div>
+        {onVolume && (
+          <div className={styles.controls}>
+            <button type="button" className={styles.controlBtn} onClick={onMute} aria-label={isMuted ? 'Unmute TV' : 'Mute TV'}>
+              {isMuted ? 'Unmute' : 'Mute'}
+            </button>
+            <input type="range" min={0} max={1} step={0.05} value={volume}
+              aria-label="TV volume" onChange={(event) => onVolume(Number(event.target.value))} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function DesktopCastPicker({ picker }: { picker: DesktopCastPickerState }) {
+  const [address, setAddress] = useState('');
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!picker.open) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => { previous?.focus(); };
+  }, [picker.open]);
+  if (!picker.open) return null;
+  return (
+    <div className={styles.pickerBackdrop} onClick={(event) => { event.stopPropagation(); if (event.target === event.currentTarget) picker.cancel(); }}>
+      <div ref={dialogRef} className={styles.picker} role="dialog" aria-modal="true" aria-labelledby="flyx-cast-picker-title"
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === 'Escape') { event.preventDefault(); picker.cancel(); }
+          if (event.key === 'Tab') {
+            const controls = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)');
+            if (!controls?.length) return;
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+          }
+        }}>
+        <div className={styles.pickerHeading}>
+          <h2 id="flyx-cast-picker-title">Cast movie to TV</h2>
+          <button type="button" className={styles.controlBtn} onClick={picker.cancel} aria-label="Close TV picker">Close</button>
+        </div>
+        <p>The TV plays the movie directly. Casting starts muted. Keep Flyx open and LAN sharing enabled.</p>
+        <div aria-live="polite">
+          {picker.connecting ? 'Connecting to TV…' : picker.discovering ? 'Searching your home network…' : !picker.devices.length ? 'No Google Cast TVs found. Wake the TV and check that it uses the same home network.' : 'Choose a TV'}
+        </div>
+        <div className={styles.deviceList}>
+          {picker.devices.map((device) => (
+            <button key={device.id} type="button" className={styles.device} disabled={picker.connecting}
+              onClick={() => picker.select({ id: device.id })}>
+              <IconCast size={22} /><span><strong>{device.name}</strong><small>{device.model || 'Google Cast'} · {device.address}</small></span>
+            </button>
+          ))}
+        </div>
+        <button type="button" className={styles.stopBtn} disabled={picker.discovering || picker.connecting} onClick={picker.refresh}>Search again</button>
+        <form className={styles.manualAddress} onSubmit={(event) => { event.preventDefault(); if (address.trim()) picker.select({ address: address.trim() }); }}>
+          <label htmlFor="flyx-cast-ip">TV not listed? Enter its IP address</label>
+          <div><input id="flyx-cast-ip" value={address} onChange={(event) => setAddress(event.target.value)}
+            placeholder="192.168.1.50" autoComplete="off" inputMode="decimal" disabled={picker.connecting} />
+            <button type="submit" className={styles.stopBtn} disabled={picker.connecting || !address.trim()}>Connect</button></div>
+          <small>Find the private IPv4 address in the TV’s network settings. Google Cast must be enabled.</small>
+        </form>
+        {picker.error && <p className={styles.pickerError} role="alert">{picker.error}</p>}
       </div>
     </div>
   );

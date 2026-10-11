@@ -26,13 +26,14 @@ import {
   IconVolumeMute,
 } from './icons';
 import { useCast } from '@/hooks/useCast';
+import { isSilentDesktopPlayback } from '@/lib/desktop-playback';
 import { useMediaSession } from '@/hooks/useMediaSession';
 import PlayerHelpModal, {
   shouldAutoShowPlayerHelp,
   markPlayerHelpSeen,
   detectHelpPlatform,
 } from './PlayerHelpModal';
-import { CastButton, CastOverlay, CastErrorBanner, IconHelp, IconCast } from './CastUI';
+import { CastButton, CastOverlay, DesktopCastPicker, CastErrorBanner, IconHelp, IconCast } from './CastUI';
 import { IconVlc } from './VlcButton';
 import { usePlaybackRecovery } from './usePlaybackRecovery';
 
@@ -124,7 +125,7 @@ export default function MobileVideoPlayer({
   const [isBuffering, setIsBuffering] = useState(true);
   const [showChrome, setShowChrome] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(isSilentDesktopPlayback);
   const [speed, setSpeed] = useState(1);
   const [sheet, setSheet] = useState<'none' | 'sources' | 'settings'>('none');
   const [seekFlash, setSeekFlash] = useState<'left' | 'right' | null>(null);
@@ -257,6 +258,7 @@ export default function MobileVideoPlayer({
         video.currentTime = Math.min(initialTime, video.duration - 1);
         appliedInitial.current = true;
       }
+      if (isSilentDesktopPlayback()) { video.muted = true; video.volume = 0; video.pause(); return; }
       video.play().catch(() => setIsPlaying(false));
     };
 
@@ -726,6 +728,8 @@ export default function MobileVideoPlayer({
         </div>
       </div>
 
+      {cast.desktopPicker && <DesktopCastPicker picker={cast.desktopPicker} />}
+
       {isCastOverlayVisible && (cast.isCasting || cast.isConnected) && (
         <CastOverlay
           title={title || 'Now playing'}
@@ -738,6 +742,10 @@ export default function MobileVideoPlayer({
           currentTime={cast.currentTime || currentTime}
           duration={cast.duration || duration}
           isPlaying={cast.playerState === 'PLAYING'}
+          volume={cast.volume}
+          isMuted={cast.isMuted}
+          onVolume={cast.desktopPicker ? cast.setVolume : undefined}
+          onMute={cast.desktopPicker ? cast.toggleMute : undefined}
           onPlayPause={cast.playOrPause}
           onSeek={cast.seek}
           onStop={() => {
