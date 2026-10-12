@@ -35,6 +35,7 @@ import {
   IconVolumeMute,
 } from './icons';
 import { getPlayerPreferences } from '@/lib/utils/player-preferences';
+import { orderedStartupSources, hlsStartupLevel } from './source-quality';
 import { useMediaSession } from '@/hooks/useMediaSession';
 import { useCast } from '@/hooks/useCast';
 import { isSilentDesktopPlayback } from '@/lib/desktop-playback';
@@ -154,6 +155,7 @@ export default function VideoPlayer({
   const helpAutoOpenedRef = useRef(false);
 
   const prefs = useRef(getPlayerPreferences());
+  const explicitSourceUrlRef = useRef<string | null>(null);
 
   // Publish now-playing metadata to the system media session (Windows SMTC,
   // read by VRChat companions like MagicChatbox) and the window title.
@@ -217,6 +219,12 @@ export default function VideoPlayer({
       if (failoverLockRef.current) return;
       failoverLockRef.current = true;
       pendingResumeRef.current = resumeAt;
+      if (explicitSourceUrlRef.current === currentStreamUrl) {
+        setStatus('error');
+        setErrorMsg('This version could not play. Choose another source or retry.');
+        failoverLockRef.current = false;
+        return;
+      }
       setSourceIndex((i) => i + 1);
       setTimeout(() => {
         failoverLockRef.current = false;
@@ -249,6 +257,7 @@ export default function VideoPlayer({
   const fetchSources = useCallback(async () => {
     setStatus('loading');
     setErrorMsg(null);
+    explicitSourceUrlRef.current = null;
     setSources([]);
     setSourceIndex(0);
 
@@ -365,7 +374,7 @@ export default function VideoPlayer({
         return;
       }
 
-      setSources(list);
+      setSources(orderedStartupSources(list, getPlayerPreferences().preferredQuality));
       setProvider(usedProvider);
       setSourceIndex(0);
       setStatus('ready');
@@ -452,6 +461,7 @@ export default function VideoPlayer({
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: false,
+          autoStartLoad: false,
           backBufferLength: 90,
           maxBufferLength: 30,
           maxMaxBufferLength: 60,
@@ -467,9 +477,10 @@ export default function VideoPlayer({
           nudgeMaxRetry: 3,
         });
         hlsRef.current = hls;
-        hls.loadSource(url);
-        hls.attachMedia(video as unknown as HTMLMediaElement);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          hls.startLevel = hlsStartupLevel(hls.levels, getPlayerPreferences().preferredQuality,
+            explicitSourceUrlRef.current === src.url);
+          hls.startLoad(-1);
           setIsBuffering(false);
           onReady();
         });
@@ -479,6 +490,8 @@ export default function VideoPlayer({
           // rebuild the pipeline at the stall point or restart from zero.
           recovery.handleHlsError(hls, data);
         });
+        hls.loadSource(url);
+        hls.attachMedia(video as unknown as HTMLMediaElement);
       } else if (video.canPlayType('application/vnd.apple.mpegurl') && isHls) {
         video.src = url;
         video.addEventListener('loadedmetadata', onReady, { once: true });
@@ -872,11 +885,12 @@ export default function VideoPlayer({
     (index: number) => {
       const resume = videoRef.current?.currentTime || 0;
       pendingResumeRef.current = resume;
+      explicitSourceUrlRef.current = sources[index]?.url ?? null;
       setSourceIndex(index);
       setShowServers(false);
       showToast(`Source ${index + 1}`);
     },
-    [showToast],
+    [showToast, sources],
   );
 
   const changeSpeed = useCallback(

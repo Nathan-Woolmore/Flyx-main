@@ -17,6 +17,8 @@ import { useCast } from "@/hooks/useCast";
 import { applyDesktopSourceAutoplay, isSilentDesktopPlayback, restoreHiddenDesktopPlayback } from "@/lib/desktop-playback";
 import { getStartupNotice, playFromStartupButton } from "@/lib/player-startup-notice";
 import { listenForMp4Source } from "@/components/player/mp4-source-events";
+import { Mp4MetadataDeadline, handleMp4Failure } from "@/components/player/mp4-startup";
+import { qualityRank, chooseStartupSource, hlsStartupLevel, fastStartRank, untriedSources } from "@/components/player/source-quality";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import PlayerHelpModal, {
   shouldAutoShowPlayerHelp,
@@ -233,17 +235,7 @@ function parseSourceList(data: any, fallbackProvider?: string): StreamSource[] {
   return list;
 }
 
-function qualityRank(q?: string): number {
-  if (!q) return 0;
-  const m = q.match(/(\d{3,4})/);
-  return m ? parseInt(m[1], 10) : q.toLowerCase().includes("auto") ? 1 : 0;
-}
-
-/**
- * Rank for source *lists / UI* — higher quality first.
- * Do NOT use this alone for initial autoplay: progressive 1080p MP4 via
- * the stream proxy is often 20–30s to first frame.
- */
+/** Rank source lists by their advertised resolution. */
 function sourceRank(s: StreamSource): number {
   let score = qualityRank(s.quality);
   // Slight preference for HLS in lists (adaptive); MP4 still ranks by quality
@@ -252,44 +244,14 @@ function sourceRank(s: StreamSource): number {
   return score;
 }
 
-/**
- * Rank for *initial playback* — optimize time-to-first-frame.
- * Progressive high-bitrate MP4 through /api/stream/proxy is slow; HLS with
- * startLevel:0 or a mid-quality MP4 starts much faster.
- */
-function fastStartRank(s: StreamSource): number {
-  const q = qualityRank(s.quality);
-  if (s.type === "hls" || (s.url && s.url.includes(".m3u8"))) {
-    // Adaptive playlist — hls.js starts at lowest rung (startLevel: 0)
-    return 2000 + (q > 0 ? Math.min(q, 100) : 50);
-  }
-  if (s.type === "mp4" || (s.url && /\.mp4(\?|$)/i.test(s.url))) {
-    // Prefer 720p, then 480p, then 360p; penalize 1080p+ (huge first byte wait)
-    let tier = 0;
-    if (q === 720) tier = 300;
-    else if (q === 480) tier = 280;
-    else if (q === 360 || q === 540) tier = 260;
-    else if (q > 0 && q < 720) tier = 240;
-    else if (q === 1080) tier = 120;
-    else if (q > 1080) tier = 80;
-    else tier = 200; // unknown quality
-    return 1000 + tier;
-  }
-  return q;
-}
-
-/** Pick the source that will start playing soonest (not max quality). */
+/** Apply the saved startup choice to the first successful provider. */
 function pickBestSource(
   list: StreamSource[],
   mode: AnimeAudioMode,
   isAnime: boolean,
+  failed: ReadonlySet<string> = new Set(),
 ): StreamSource | null {
-  const filtered = filterSourcesByAudio(list, mode, isAnime);
-  if (!filtered.length) return null;
-  const sorted = [...filtered].sort(
-    (a, b) => fastStartRank(b) - fastStartRank(a),
-  );
-  return sorted[0]!;
+  return chooseStartupSource(filterSourcesByAudio(list, mode, isAnime), getPlayerPreferences().preferredQuality, failed);
 }
 
 function filterSourcesByAudio(
@@ -435,6 +397,8 @@ function WatchInner() {
   const loadStartRef = useRef(0);
   const probeGenRef = useRef(0);
   const consecutiveFailuresRef = useRef(0);
+  const failedSourcesRef = useRef(new Set<string>());
+  const explicitMp4ChoiceRef = useRef<{ url: string; label: string } | null>(null);
   const MAX_CONSECUTIVE_FAILURES = 5;
   /** Bump to force the HLS effect to reload the current source (tray restore). */
   const [reloadKey, setReloadKey] = useState(0);
@@ -477,6 +441,7 @@ function WatchInner() {
   const [muted, setMuted] = useState(false);
   const [silentPlayback, setSilentPlayback] = useState(false);
   const [playbackPolicyReady, setPlaybackPolicyReady] = useState(false);
+  const [mp4StartupHint, setMp4StartupHint] = useState<string | null>(null);
   const startupNotice = getStartupNotice({
     status, hasSource: !!activeUrl, hasStarted, playing,
     pauseOnStartup: playbackPolicyReady && silentPlayback,
@@ -1391,6 +1356,9 @@ function WatchInner() {
     let cancelled = false;
     const gen = ++probeGenRef.current;
 
+    explicitMp4ChoiceRef.current = null;
+    consecutiveFailuresRef.current = 0;
+    failedSourcesRef.current.clear();
     setStatus("loading");
     setActiveUrl(null);
     setErrorMsg("");
@@ -1457,7 +1425,7 @@ function WatchInner() {
           totalSources: list.length,
           referer: best.referer?.substring(0, 40),
           requiresSegmentProxy: best.requiresSegmentProxy,
-          fastStart: fastStartRank(best),
+          advertisedResolution: qualityRank(best.quality),
         }));
         setPlaybackProvider(pid);
         setSheetProvider(pid);
@@ -1560,8 +1528,8 @@ function WatchInner() {
           const now = videoRef.current?.currentTime ?? 0;
           if (now > 2) resumeAfterSwitchRef.current = now;
           const best =
-            pickBestSource(cached, audioModeRef.current, Boolean(malId)) ||
-            cached[0]!;
+            pickBestSource(cached, audioModeRef.current, Boolean(malId), failedSourcesRef.current);
+          if (!best) return;
           setPlaybackProvider(providerId);
           setActiveUrl(best.url);
           setStatus("ready");
@@ -1600,8 +1568,8 @@ function WatchInner() {
         if (now > 2) resumeAfterSwitchRef.current = now;
         const pid = result.provider || providerId;
         const best =
-          pickBestSource(result.list, audioModeRef.current, Boolean(malId)) ||
-          result.list[0]!;
+          pickBestSource(result.list, audioModeRef.current, Boolean(malId), failedSourcesRef.current);
+        if (!best) return;
         setPlaybackProvider(pid);
         setActiveUrl(best.url);
         setStatus("ready");
@@ -1623,7 +1591,11 @@ function WatchInner() {
   /** Explicit source pick — only place (besides initial load / recovery) that changes playback. */
   const selectSource = useCallback(
     (src: StreamSource) => {
+      failedSourcesRef.current.delete(src.url);
+      consecutiveFailuresRef.current = 0;
+      explicitMp4ChoiceRef.current = { url: src.url, label: String(src.quality || "selected") };
       if (src.url === activeUrl) {
+        if (status === "error") { setStatus("ready"); setReloadKey((key) => key + 1); }
         setShowSources(false);
         return;
       }
@@ -1649,7 +1621,7 @@ function WatchInner() {
           : src.title || q || "Source switched",
       );
     },
-    [activeUrl, showToast, sheetProvider, playbackProvider, isAnime],
+    [activeUrl, status, showToast, sheetProvider, playbackProvider, isAnime],
   );
 
   /**
@@ -1773,6 +1745,7 @@ function WatchInner() {
     // otherwise a stale stall timer fires against the next source while it
     // is playing fine.
     let teardownSource: (() => void) | null = null;
+    let removeHlsHealthListener: (() => void) | null = null;
     // Pending timeline listeners from applyResumeAndPlay — also disarmed on
     // source switch (the next source re-registers its own).
     let resumeCleanup: (() => void) | null = null;
@@ -1889,6 +1862,14 @@ function WatchInner() {
         // Window hidden to tray: the source is torn down on hide and
         // restored on show — never churn through sources in the background.
         if (trayHiddenRef.current) return;
+        if (explicitMp4ChoiceRef.current?.url === url) {
+          rememberFailoverResume();
+          setStatus("error");
+          setErrorMsg(`The ${explicitMp4ChoiceRef.current.label} version could not load. Retry this version or choose another quality.`);
+          return;
+        }
+        if (failedSourcesRef.current.has(url)) return;
+        failedSourcesRef.current.add(url);
         // The failed source is already torn down (currentTime reset to 0):
         // resume the next one from the last good position instead.
         rememberFailoverResume();
@@ -1907,28 +1888,19 @@ function WatchInner() {
         const ctx = playbackCtxRef.current;
         const pid = ctx.playbackProvider;
         const raw = pid ? ctx.sourcesCache[pid] ?? [] : [];
-        const list = filterSourcesByAudio(
-          raw,
-          ctx.audioMode,
-          ctx.isAnime,
-        ).sort((a, b) => fastStartRank(b) - fastStartRank(a));
-        const idx = list.findIndex((s) => s.url === url);
-        if (idx >= 0 && idx < list.length - 1) {
-          ctx.showToast("Source failed — trying next…");
-          setActiveUrl(list[idx + 1]!.url);
-          return;
-        }
-        // Try remaining same-provider sources (fast-start order) before switching server
-        const remaining = list.filter((s) => s.url !== url);
-        if (remaining.length > 0) {
-          ctx.showToast("Source failed — trying next…");
-          setActiveUrl(remaining[0]!.url);
+        const list = untriedSources(filterSourcesByAudio(
+          raw, ctx.audioMode, ctx.isAnime,
+        ), failedSourcesRef.current).sort((a, b) => fastStartRank(b) - fastStartRank(a));
+        if (list.length > 0) {
+          const next = list[0]!;
+          ctx.showToast(`Source failed — trying ${next.quality || "another source"}…`);
+          setActiveUrl(next.url);
           return;
         }
         // If anime, try the OTHER audio mode (dub→sub or sub→dub)
         if (ctx.isAnime) {
           const otherMode: AnimeAudioMode = ctx.audioMode === "dub" ? "sub" : "dub";
-          const otherList = filterSourcesByAudio(raw, otherMode, true)
+          const otherList = untriedSources(filterSourcesByAudio(raw, otherMode, true), failedSourcesRef.current)
             .sort((a, b) => fastStartRank(b) - fastStartRank(a));
           if (otherList.length > 0) {
             const modeLabel = otherMode === "dub" ? "Dub" : "Sub";
@@ -1948,7 +1920,7 @@ function WatchInner() {
           if (!cand || cand === pid) continue;
           if (
             ctx.providerState[cand] === "ready" &&
-            ctx.sourcesCache[cand]?.length
+            pickBestSource(ctx.sourcesCache[cand] ?? [], ctx.audioMode, ctx.isAnime, failedSourcesRef.current)
           ) {
             ctx.showToast("Switching server…");
             void ctx.browseProvider?.(cand, { playFirst: true });
@@ -2001,6 +1973,15 @@ function WatchInner() {
         quality: currentSource?.quality,
       }));
 
+      if (isHls) {
+        // A manifest alone is not successful playback: reset the failure budget
+        // only after actual timeline progress, as in the MP4 branch.
+        removeHlsHealthListener = listenForMp4Source(video, {
+          onMetadata: () => {}, onError: () => {}, onProgress: () => {},
+          onHealthyPlayback: () => { consecutiveFailuresRef.current = 0; },
+        });
+      }
+
       if (isHls && video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = playbackUrl;
         // Native HLS fires NO events for a slow/dead manifest or a stream
@@ -2052,7 +2033,6 @@ function WatchInner() {
         const onMeta = () => {
           if (doneRef.current) return;
           clearTimeout(metaTimeout);
-          consecutiveFailuresRef.current = 0;
           console.log(`[Watch] ⏱️ Native HLS metadata in ${(performance.now() - loadStartRef.current).toFixed(0)}ms`);
           applyResumeAndPlay();
           armStall(); // metadata without playback is a stall too
@@ -2113,8 +2093,9 @@ function WatchInner() {
             const hls = new Hls({
               enableWorker: true,
               lowLatencyMode: false,
-              // Start at lowest quality for fast first frame; ABR climbs after
-              startLevel: 0,
+              // Choose the first variant from the saved startup preference
+              // after reading the manifest. ABR can still adapt afterward.
+              autoStartLoad: false,
               abrEwmaDefaultEstimate: 500000,
               startFragPrefetch: true,
               manifestLoadingTimeOut: 8000,
@@ -2128,10 +2109,13 @@ function WatchInner() {
               // (forbidden headers; browsers silently drop them).
             });
             hlsRef.current = hls;
-            hls.loadSource(playbackUrl);
-            hls.attachMedia(video as unknown as HTMLMediaElement);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-              consecutiveFailuresRef.current = 0;
+              const preference = getPlayerPreferences().preferredQuality;
+              const explicit = explicitMp4ChoiceRef.current?.url === url;
+              hls.startLevel = hlsStartupLevel(hls.levels, preference, explicit);
+              console.log("[Watch] HLS startup", JSON.stringify({ preference, explicit,
+                level: hls.startLevel, height: hls.levels[hls.startLevel]?.height }));
+              hls.startLoad(-1);
               console.log(`[Watch] ⏱️ HLS manifest parsed in ${(performance.now() - loadStartRef.current).toFixed(0)}ms`);
               applyResumeAndPlay();
             });
@@ -2144,6 +2128,8 @@ function WatchInner() {
                 if (data?.fatal) recovery.handleHlsError(hls, data as never);
               },
             );
+            hls.loadSource(playbackUrl);
+            hls.attachMedia(video as unknown as HTMLMediaElement);
             return;
           }
         } catch (err) {
@@ -2171,15 +2157,29 @@ function WatchInner() {
       const doneRef = { current: false };
       let lastProgress = 0;
       let removeSourceListeners = () => {};
+      let mp4Timeout: ReturnType<typeof setTimeout>;
+      const metadataDeadline = new Mp4MetadataDeadline(mp4TimeoutMs, needsProxy);
+      setMp4StartupHint(null);
+      const failMp4 = () => handleMp4Failure({
+        explicitChoice: explicitMp4ChoiceRef.current, failedUrl: url,
+        onAutomaticFailure: recoverPlayback,
+        onManualFailure: (label) => {
+          rememberFailoverResume();
+          setStatus("error");
+          setErrorMsg(`The ${label} version could not load. Retry this version or choose another quality.`);
+        },
+      });
 
       const cleanup = () => {
         doneRef.current = true;
         clearTimeout(mp4Timeout);
+        setMp4StartupHint(null);
         removeSourceListeners();
       };
       teardownSource = cleanup;
 
       const onProg = () => {
+        metadataDeadline.progress();
         const now = performance.now();
         const buf = video.buffered;
         const end = buf.length > 0 ? buf.end(buf.length - 1) : 0;
@@ -2193,7 +2193,8 @@ function WatchInner() {
         if (doneRef.current) return;
         // Metadata ends the initial timeout, not late error/progress monitoring.
         clearTimeout(mp4Timeout);
-        console.log(`[Watch] ⏱️ MP4 metadata in ${(performance.now() - loadStartRef.current).toFixed(0)}ms`);
+        setMp4StartupHint(null);
+        console.log(`[Watch] ⏱️ MP4 metadata in ${metadataDeadline.elapsedMs().toFixed(0)}ms`);
         applyResumeAndPlay();
       };
       const onErr = () => {
@@ -2202,15 +2203,21 @@ function WatchInner() {
         const msg = video.error ? (video.error.message || "") : "";
         cleanup();
         video.src = "";
-        console.log(`[Watch] ⏱️ MP4 failed (code=${code} ${msg}), trying next source...`);
-        recoverPlayback();
+        console.log(`[Watch] ⏱️ MP4 failed (code=${code} ${msg})`);
+        failMp4();
       };
       const onTimeout = () => {
         if (doneRef.current) return;
+        const wait = metadataDeadline.nextWaitMs();
+        if (wait != null) {
+          setMp4StartupHint("Data is arriving. Allowing up to 45 seconds for this version to load.");
+          mp4Timeout = setTimeout(onTimeout, wait);
+          return;
+        }
         cleanup();
         video.src = "";
-        console.log(`[Watch] ⏱️ MP4 timed out after ${mp4TimeoutMs}ms`);
-        recoverPlayback();
+        console.log(`[Watch] ⏱️ MP4 metadata timed out after ${metadataDeadline.elapsedMs().toFixed(0)}ms`);
+        failMp4();
       };
 
       removeSourceListeners = listenForMp4Source(video, {
@@ -2224,7 +2231,7 @@ function WatchInner() {
       }
       video.src = mp4Src;
       video.load();
-      const mp4Timeout = setTimeout(onTimeout, mp4TimeoutMs);
+      mp4Timeout = setTimeout(onTimeout, mp4TimeoutMs);
     })();
 
     return () => {
@@ -2241,6 +2248,7 @@ function WatchInner() {
         resumeCleanup();
         resumeCleanup = null;
       }
+      removeHlsHealthListener?.();
       // Only destroy HLS.js instances.
       if (hlsRef.current) {
         try { hlsRef.current.destroy(); } catch { /* */ }
@@ -2916,8 +2924,19 @@ function WatchInner() {
           </div>
         )}
 
+        {status === "ready" && mp4StartupHint && (
+          <div className="cinema-state" role="status" aria-live="polite">
+            <div className="cinema-spinner" />
+            <p className="cinema-state-title">Loading this version…</p>
+            <p className="cinema-state-sub">{mp4StartupHint}</p>
+            <button type="button" className="cinema-retry" onClick={(event) => {
+              event.stopPropagation(); setShowSources(true);
+            }}>Choose quality</button>
+          </div>
+        )}
+
         {/* Intentional startup pause needs a Play action, not a buffering spinner. */}
-        {startupNotice && (
+        {startupNotice && !mp4StartupHint && (
           <div className="cinema-state">
             {startupNotice === "press-play" ? (
               <>
@@ -2947,10 +2966,18 @@ function WatchInner() {
             <button
               type="button"
               className="cinema-retry"
-              onClick={() => window.location.reload()}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (explicitMp4ChoiceRef.current?.url === activeUrl) {
+                  setStatus("ready"); setReloadKey((key) => key + 1);
+                } else window.location.reload();
+              }}
             >
               Retry
             </button>
+            <button type="button" className="cinema-retry" onClick={(event) => {
+              event.stopPropagation(); setShowSources(true);
+            }}>Choose quality</button>
           </div>
         )}
 

@@ -24,6 +24,7 @@ import {
   type SubtitlePreferences,
   type SubtitleStyle,
 } from "@/lib/utils/subtitle-preferences";
+import { normalizeStartupQualityPreference } from "@/components/player/source-quality";
 import styles from "./SettingsPage.module.css";
 
 type SettingsTab =
@@ -232,11 +233,29 @@ function PlaybackSettings() {
         </div>
         <div>
           <h2 className={styles.cardTitle}>Playback Settings</h2>
-          <p className={styles.cardSubtitle}>Auto-play, episode navigation and VLC hand-off</p>
+          <p className={styles.cardSubtitle}>Startup quality, auto-play and VLC hand-off</p>
         </div>
       </div>
 
       <div className={styles.settingsList}>
+        <div className={styles.settingItem}>
+          <div className={styles.settingInfo}>
+            <span className={styles.settingLabel}>Startup quality</span>
+            <span className={styles.settingDesc}>
+              Highest quality may take longer to load. Your choice in the player takes priority.
+            </span>
+          </div>
+          <select
+            className={styles.select}
+            aria-label="Startup quality"
+            value={preferences.preferredQuality}
+            onChange={(e) => updatePreference("preferredQuality", normalizeStartupQualityPreference(e.target.value))}
+          >
+            <option value="highest">Highest quality</option>
+            <option value="fast-start">Faster startup</option>
+          </select>
+        </div>
+
         <div className={styles.settingItem}>
           <div className={styles.settingInfo}>
             <span className={styles.settingLabel}>Auto-play next episode</span>
