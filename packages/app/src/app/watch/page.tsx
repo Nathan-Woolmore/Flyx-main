@@ -14,7 +14,9 @@ import {
 } from "react";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useCast } from "@/hooks/useCast";
-import { isSilentDesktopPlayback } from "@/lib/desktop-playback";
+import { applyDesktopSourceAutoplay, isSilentDesktopPlayback, restoreHiddenDesktopPlayback } from "@/lib/desktop-playback";
+import { getStartupNotice, playFromStartupButton } from "@/lib/player-startup-notice";
+import { listenForMp4Source } from "@/components/player/mp4-source-events";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import PlayerHelpModal, {
   shouldAutoShowPlayerHelp,
@@ -475,6 +477,10 @@ function WatchInner() {
   const [muted, setMuted] = useState(false);
   const [silentPlayback, setSilentPlayback] = useState(false);
   const [playbackPolicyReady, setPlaybackPolicyReady] = useState(false);
+  const startupNotice = getStartupNotice({
+    status, hasSource: !!activeUrl, hasStarted, playing,
+    pauseOnStartup: playbackPolicyReady && silentPlayback,
+  });
   const [chromeVisible, setChromeVisible] = useState(true);
   const [seeking, setSeeking] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -1819,15 +1825,7 @@ function WatchInner() {
           resumeCleanup();
           resumeCleanup = null;
         }
-        const play = () => {
-          if (isSilentDesktopPlayback()) {
-            video.muted = true;
-            video.volume = 0;
-            video.pause();
-            return;
-          }
-          void video.play().catch(() => undefined);
-        };
+        const play = () => applyDesktopSourceAutoplay(video);
         const resume = resumeAfterSwitchRef.current;
         if (resume == null || resume <= 2) {
           play();
@@ -2172,13 +2170,12 @@ function WatchInner() {
       // Use a ref-backed flag so Fast Refresh doesn't kill the load
       const doneRef = { current: false };
       let lastProgress = 0;
+      let removeSourceListeners = () => {};
 
       const cleanup = () => {
         doneRef.current = true;
         clearTimeout(mp4Timeout);
-        video.removeEventListener("loadedmetadata", onMeta);
-        video.removeEventListener("error", onErr);
-        video.removeEventListener("progress", onProg);
+        removeSourceListeners();
       };
       teardownSource = cleanup;
 
@@ -2194,17 +2191,17 @@ function WatchInner() {
       };
       const onMeta = () => {
         if (doneRef.current) return;
-        cleanup();
-        consecutiveFailuresRef.current = 0; // reset failure counter on success
+        // Metadata ends the initial timeout, not late error/progress monitoring.
+        clearTimeout(mp4Timeout);
         console.log(`[Watch] ⏱️ MP4 metadata in ${(performance.now() - loadStartRef.current).toFixed(0)}ms`);
         applyResumeAndPlay();
       };
       const onErr = () => {
         if (doneRef.current) return;
-        cleanup();
-        video.src = "";
         const code = video.error ? video.error.code : null;
         const msg = video.error ? (video.error.message || "") : "";
+        cleanup();
+        video.src = "";
         console.log(`[Watch] ⏱️ MP4 failed (code=${code} ${msg}), trying next source...`);
         recoverPlayback();
       };
@@ -2216,9 +2213,10 @@ function WatchInner() {
         recoverPlayback();
       };
 
-      video.addEventListener("loadedmetadata", onMeta);
-      video.addEventListener("error", onErr);
-      video.addEventListener("progress", onProg);
+      removeSourceListeners = listenForMp4Source(video, {
+        onMetadata: onMeta, onError: onErr, onProgress: onProg,
+        onHealthyPlayback: () => { consecutiveFailuresRef.current = 0; },
+      });
       // Pre-warm: fire a no-cache fetch to the proxy so the CDN connection
       // is established before the video element starts its request.
       if (needsProxy) {
@@ -2319,12 +2317,11 @@ function WatchInner() {
       console.log(`[Watch] 🪟 Window hidden — playback paused at ${Math.round(now)}s`);
     };
     const onShown = () => {
-      trayHiddenRef.current = false;
-      // Reload the source; applyResumeAndPlay reads the saved resume ref.
-      if (activeUrl && status === "ready") {
-        setReloadKey((k) => k + 1);
-      }
-      console.log("[Watch] 🪟 Window shown — resuming playback");
+      const restored = restoreHiddenDesktopPlayback(trayHiddenRef, () => {
+        // Only a genuine tray hide tore down the stream and needs reloading.
+        if (activeUrl && status === "ready") setReloadKey((k) => k + 1);
+      });
+      if (restored) console.log("[Watch] 🪟 Window shown — resuming playback");
     };
     const offHidden = api.onWindowHidden(onHidden);
     const offShown = api.onWindowShown(onShown);
@@ -2388,7 +2385,7 @@ function WatchInner() {
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v || status !== "ready") return;
-    if (v.paused) void v.play();
+    if (v.paused) void v.play().catch(() => undefined);
     else v.pause();
     bumpChrome();
   }, [status, bumpChrome]);
@@ -2919,12 +2916,24 @@ function WatchInner() {
           </div>
         )}
 
-        {/* Only while waiting for first frame — NOT when the user pauses */}
-        {status === "ready" && !hasStarted && activeUrl && (
+        {/* Intentional startup pause needs a Play action, not a buffering spinner. */}
+        {startupNotice && (
           <div className="cinema-state">
-            <div className="cinema-spinner" />
-            <p className="cinema-state-title">Buffering stream…</p>
-            <p className="cinema-state-sub">Preparing playback</p>
+            {startupNotice === "press-play" ? (
+              <>
+                <p className="cinema-state-title">Ready to play</p>
+                <p className="cinema-state-sub">Press Play to start.</p>
+                <button type="button" className="cinema-retry" onClick={(event) => playFromStartupButton(event, togglePlay)}>
+                  Play
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="cinema-spinner" />
+                <p className="cinema-state-title">Buffering stream…</p>
+                <p className="cinema-state-sub">Preparing playback</p>
+              </>
+            )}
           </div>
         )}
 
