@@ -52,6 +52,8 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Native companion and opt-in test servers never enter the desktop server trace.
+  outputFileTracingExcludes: { "*": ["../../ios/**/*", "../../tests/remote/**/*"] },
   async headers() {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },

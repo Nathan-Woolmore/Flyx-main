@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/get-session";
-import { cancelJob, getJob, removeJob } from "@/lib/downloads/manager";
+import { cancelJob, getJob, removeJobWithCache } from "@/lib/downloads/manager";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +30,11 @@ export async function DELETE(
   if (active) {
     cancelJob(id);
   } else {
-    removeJob(id);
+    try {
+      await removeJobWithCache(id);
+    } catch (error) {
+      return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 409 });
+    }
   }
 
   return NextResponse.json({ ok: true });

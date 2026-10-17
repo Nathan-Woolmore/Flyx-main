@@ -1,0 +1,93 @@
+import Foundation
+
+struct RemoteTitle: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let kind: String
+    let title: String
+    let overview: String
+    let posterURL: String?
+    var rating:Double? = nil
+    var releaseDate:String? = nil
+    var voteCount:Int? = nil
+    var stableID: String { kind+":"+id }
+}
+struct CatalogPage: Decodable, Sendable { let items: [RemoteTitle]; let nextPage: Int? }
+struct RemoteDetails: Decodable, Sendable {
+    struct Chapter:Codable,Hashable,Identifiable,Sendable {let id:String;let number:Double;let title:String;let language:String;let edition:String}
+    struct Metadata:Decodable,Identifiable,Sendable {var id:String{label};let label:String;let value:String}
+    struct Season: Decodable, Sendable { struct Episode: Decodable, Identifiable, Sendable { var id: Int { number }; let number: Int; let title: String }; let number: Int; let episodes: [Episode] }
+    let id: String; let kind: String; let title: String; let overview: String; let posterURL: String?
+    let seasons: [Season]; let episodeCount: Int?
+    var selectedSeason: Int?
+    var seasonError: String?
+    var rating:Double?
+    var voteCount:Int?
+    var releaseDate:String?
+    var chapters:[Chapter]?
+    var metadata:[Metadata]?
+}
+struct PairingRequest: Encodable { let secret: String; let name: String }
+struct PairingPending: Decodable { let requestID: String; let status: String }
+struct PairingCollect: Encodable { let requestID: String }
+struct PairingGrant: Decodable { let status: String; let token: String?; let scopes: [String]?; let deviceID:String? }
+struct PlayCommand: Encodable { let id: String; let type: String; let kind: String; let contentID: Int; let season: Int?; let episode: Int?;var seconds:Double? = nil }
+struct PlaybackStatus: Decodable, Sendable { let state: String; let position: Double; let duration: Double; var title:String?;var artworkURL:String?;var output:String?;var outputName:String?;var volume:Double?;var isMuted:Bool?;var audioControl:Bool?;var phonePlayback:Bool? }
+struct PlaybackTransfer:Decodable,Sendable {let position:Double;let paused:Bool}
+struct CommandResult: Decodable { let ok: Bool; let status: PlaybackStatus;var transfer:PlaybackTransfer? }
+struct RemoteFailure: LocalizedError { let message: String; var status:Int? = nil; var errorDescription: String? { message } }
+struct BridgeFailureBody:Decodable {let code:String?}
+
+// Immutable, ephemeral client. No admin cookies, redirects, keychain writes or token persistence.
+final class RemoteClient: Sendable {
+    let baseURL: URL
+    private let token: String?
+    private let session: URLSession
+    let scopes: Set<String>
+    private let pinConfigured: Bool
+    init(baseURL: URL, token: String? = nil, certificatePin: String = "", scopes: [String] = [], session: URLSession? = nil) {
+        self.baseURL = baseURL; self.token = token; self.scopes=Set(scopes)
+        pinConfigured=session != nil || certificatePin.replacingOccurrences(of:":",with:"").range(of:"^[a-fA-F0-9]{64}$",options:.regularExpression) != nil
+        if let session { self.session = session } else {
+            let config = URLSessionConfiguration.ephemeral
+            config.httpCookieStorage = nil; config.urlCredentialStorage = nil
+            self.session = URLSession(configuration: config, delegate: PinnedSessionDelegate(host:baseURL.host ?? "",fingerprint:certificatePin), delegateQueue: nil)
+        }
+    }
+    func bytes(_ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
+        guard pinConfigured else { throw RemoteFailure(message:"Compare and enter the certificate fingerprint shown on your Mac.") }
+        guard baseURL.scheme == "https", baseURL.host?.hasSuffix(".local") == true, baseURL.user == nil, baseURL.password == nil else { throw RemoteFailure(message:"A trusted HTTPS .local Mac address is required.") }
+        guard path.hasPrefix("/remote/v1/"), var url = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { throw RemoteFailure(message: "Invalid Mac endpoint") }
+        url.path = path; url.queryItems = query.isEmpty ? nil : query
+        guard let endpoint = url.url else { throw RemoteFailure(message: "Invalid Mac endpoint") }
+        var request = URLRequest(url: endpoint); request.timeoutInterval = ["/remote/v1/session","/remote/v1/progress"].contains(path) ? 6:30; request.cachePolicy = .reloadIgnoringLocalCacheData
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let body { request.httpMethod = "POST"; request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
+            if (response as? HTTPURLResponse)?.statusCode == 401 { throw RemoteFailure(message: "Pairing expired or access was revoked. Reconnect to your Mac.",status:401) }
+            let code=(try? JSONDecoder().decode(BridgeFailureBody.self,from:data))?.code
+            if let status=(response as? HTTPURLResponse)?.statusCode,let message=RemoteCompatibility.message(path:path,status:status,code:code){throw RemoteFailure(message:message,status:status)}
+            let messages=["PHONE_FORMAT_UNSUPPORTED":"Use compatible MP4 or clear on-demand HLS. Encrypted/DRM streams, live HLS and other containers are unsupported.","PHONE_MEDIA_UNAVAILABLE":"The Mac could not prepare this source for the iPhone. Keep it open and retry.","PHONE_MEDIA_EXPIRED":"Phone playback access expired. Prepare the title again from the Mac.","PHONE_TITLE_CHANGED":"The title or episode changed on the Mac. Return to the Remote and prepare it again.","PLAYBACK_OUTPUT_CHANGED":"Playback output changed. Refresh the remote before adjusting audio.","PLAYBACK_AUDIO_UNAVAILABLE":"This output did not accept the audio change. Retry from its controls.","PLAYBACK_AUDIO_LOCKED":"Audio changes are locked by the Mac silent playback setting.","MANGA_UNAVAILABLE":"Chapter pages are unavailable. Retry this chapter.","MANGA_EXPIRED":"Reopen this chapter to refresh its page access.","WATCHLIST_PERMISSION_REQUIRED":"Allow watchlist saving for this phone in Flyx on your Mac.","WATCHLIST_ACCOUNT_REQUIRED":"Sign in to Flyx on your Mac to use its watchlist.","WATCHLIST_UNAVAILABLE":"The Mac watchlist is unavailable. Retry shortly.","CATALOG_NOT_FOUND":"This title or season is unavailable. Try another title or retry.","CATALOG_RATE_LIMITED":"The catalogue provider is busy. Wait a moment and retry.","CATALOG_TIMEOUT":"The catalogue provider took too long. Retry this title.","CATALOG_SESSION_REQUIRED":"Open Flyx on your Mac, then retry.","CATALOG_UNAVAILABLE":"The catalogue provider is unavailable. Retry shortly.","CATALOG_INVALID_REQUEST":"That title or season is unavailable. Choose an available season."]
+            if let code,let message=messages[code] {throw RemoteFailure(message:message,status:(response as? HTTPURLResponse)?.statusCode)}
+            throw RemoteFailure(message: "Mac could not complete the request.",status:(response as? HTTPURLResponse)?.statusCode)
+        }
+        return data
+    }
+    func request<T:Decodable>(_ path:String,query:[URLQueryItem]=[],body:Data?=nil)async throws->T {
+        let data=try await bytes(path,query:query,body:body)
+        do{return try JSONDecoder().decode(T.self,from:data)}catch{throw RemoteFailure(message:path=="/remote/v1/media" ? "Mac returned an incomplete media response. Close and prepare the title again.":"Mac returned incomplete catalogue details. Retry this title.",status:502)}
+    }
+    func catalog(kind: String, query: String, page: Int = 1) async throws -> CatalogPage {
+        try await catalog(CatalogRequest(kind:kind,query:query),page:page)
+    }
+    func catalog(_ selection:CatalogRequest,page:Int=1) async throws -> CatalogPage { try await request("/remote/v1/catalog",query:selection.queryItems(page:page)) }
+    func details(_ title: RemoteTitle, season: Int? = nil) async throws -> RemoteDetails {
+        var values=[URLQueryItem(name:"kind",value:title.kind),.init(name:"id",value:title.id)]
+        if let season {values.append(.init(name:"season",value:String(season)))}
+        return try await request("/remote/v1/details",query:values)
+    }
+    func play(_ title: RemoteTitle, season: Int?, episode: Int?,seconds:Double?=nil) async throws -> CommandResult {
+        guard let id = Int(title.id) else { throw RemoteFailure(message:"This title does not support video playback.") }
+        return try await request("/remote/v1/commands",body:JSONEncoder().encode(PlayCommand(id:UUID().uuidString,type:"play",kind:title.kind,contentID:id,season:season,episode:episode,seconds:seconds)))
+    }
+}

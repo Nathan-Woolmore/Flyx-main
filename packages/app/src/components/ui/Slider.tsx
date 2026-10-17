@@ -4,6 +4,7 @@ import * as React from 'react';
 
 
 interface SliderProps {
+    label?: string;
     min: number;
     max: number;
     step?: number;
@@ -12,7 +13,7 @@ interface SliderProps {
     className?: string;
 }
 
-export function Slider({ min, max, step = 1, value, onChange, className = '' }: SliderProps) {
+export function Slider({ label = 'Range', min, max, step = 1, value, onChange, className = '' }: SliderProps) {
     const [isDragging, setIsDragging] = React.useState<'min' | 'max' | null>(null);
     const trackRef = React.useRef<HTMLDivElement>(null);
 
@@ -21,6 +22,17 @@ export function Slider({ min, max, step = 1, value, onChange, className = '' }: 
     const handleMouseDown = (thumb: 'min' | 'max') => (e: React.MouseEvent | React.TouchEvent) => {
         e.preventDefault();
         setIsDragging(thumb);
+    };
+
+    const handleKeyDown = (thumb: 'min' | 'max') => (event: React.KeyboardEvent) => {
+        const index = thumb === 'min' ? 0 : 1;
+        const direction = event.key === 'ArrowRight' || event.key === 'ArrowUp' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowDown' ? -1 : 0;
+        if (!direction && event.key !== 'Home' && event.key !== 'End') return;
+        event.preventDefault();
+        const lower = index === 0 ? min : value[0] + step;
+        const upper = index === 0 ? value[1] - step : max;
+        const next = event.key === 'Home' ? lower : event.key === 'End' ? upper : Math.min(upper, Math.max(lower, value[index] + direction * step));
+        onChange(index === 0 ? [next, value[1]] : [value[0], next]);
     };
 
     React.useEffect(() => {
@@ -76,6 +88,13 @@ export function Slider({ min, max, step = 1, value, onChange, className = '' }: 
             <div
                 className="absolute w-4 h-4 bg-white rounded-full shadow-lg cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
                 style={{ left: `calc(${getPercentage(value[0])}% - 8px)` }}
+                role="slider"
+                tabIndex={0}
+                aria-label={`${label} minimum`}
+                aria-valuemin={min}
+                aria-valuemax={value[1] - step}
+                aria-valuenow={value[0]}
+                onKeyDown={handleKeyDown('min')}
                 onMouseDown={handleMouseDown('min')}
                 onTouchStart={handleMouseDown('min')}
             >
@@ -88,6 +107,13 @@ export function Slider({ min, max, step = 1, value, onChange, className = '' }: 
             <div
                 className="absolute w-4 h-4 bg-white rounded-full shadow-lg cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
                 style={{ left: `calc(${getPercentage(value[1])}% - 8px)` }}
+                role="slider"
+                tabIndex={0}
+                aria-label={`${label} maximum`}
+                aria-valuemin={value[0] + step}
+                aria-valuemax={max}
+                aria-valuenow={value[1]}
+                onKeyDown={handleKeyDown('max')}
                 onMouseDown={handleMouseDown('max')}
                 onTouchStart={handleMouseDown('max')}
             >

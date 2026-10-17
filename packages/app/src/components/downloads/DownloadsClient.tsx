@@ -1,14 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DownloadJob } from "@/lib/downloads/types";
 import { isDesktopHost } from "@/lib/downloads/client";
+import { downloadIdentity, watchUrlForDownload } from "@/lib/downloads/local-identity";
 
 interface FolderInfo {
   dir: string;
   custom: string | null;
   defaultDir: string;
+}
+
+interface RelinkPreview {
+  file: { filename: string; filepath: string; size: number; modifiedAt: number };
+  proof: string;
+  relocated: boolean;
+  replacement: boolean;
+}
+interface RelinkState {
+  job: DownloadJob;
+  filename: string;
+  preview: RelinkPreview | null;
+  confirmed: boolean;
+  busy: boolean;
+  error: string;
 }
 
 type QueueFilter = "all" | "active" | "finished";
@@ -49,6 +65,9 @@ export default function DownloadsClient() {
   const [error, setError] = useState("");
   const [isHost, setIsHost] = useState(false);
   const [filter, setFilter] = useState<QueueFilter>("all");
+  const [relink, setRelink] = useState<RelinkState | null>(null);
+  const [relinkMessage, setRelinkMessage] = useState("");
+  const relinkGeneration = useRef(0);
 
   useEffect(() => setIsHost(isDesktopHost()), []);
 
@@ -138,9 +157,28 @@ export default function DownloadsClient() {
     }
   }
 
+  async function retryCollection(jobId: string) {
+    try {
+      const response = await fetch(`/api/downloads/${jobId}/retry`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || !result.ok)
+        throw new Error(result.error || "Could not retry this collection.");
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not retry this collection.");
+    }
+  }
+
   async function removeJob(jobId: string) {
-    await fetch(`/api/downloads/${jobId}`, { method: "DELETE" });
-    await refresh();
+    try {
+      const response = await fetch(`/api/downloads/${jobId}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok || !result.ok)
+        throw new Error(result.error || "Could not update this download.");
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not update this download.");
+    }
   }
 
   async function clearFinished() {
@@ -151,13 +189,78 @@ export default function DownloadsClient() {
     await refresh();
   }
 
+  async function checkSavedFile(job: DownloadJob, filename: string) {
+    const generation = ++relinkGeneration.current;
+    setRelink({ job, filename, preview: null, confirmed: false, busy: true, error: "" });
+    setRelinkMessage("");
+    try {
+      const query = new URLSearchParams({ filename });
+      const response = await fetch(`/api/downloads/${encodeURIComponent(job.id)}/relink?${query}`, {
+        cache: "no-store",
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok)
+        throw new Error(result.error || "Could not check this saved file.");
+      if (generation === relinkGeneration.current)
+        setRelink({
+          job,
+          filename,
+          preview: result.preview,
+          confirmed: false,
+          busy: false,
+          error: "",
+        });
+    } catch (error) {
+      if (generation === relinkGeneration.current)
+        setRelink({
+          job,
+          filename,
+          preview: null,
+          confirmed: false,
+          busy: false,
+          error: error instanceof Error ? error.message : "Could not check this saved file.",
+        });
+    }
+  }
+
+  async function confirmSavedFile() {
+    if (!relink?.preview || !relink.confirmed || relink.busy) return;
+    const generation = relinkGeneration.current;
+    const current = relink;
+    setRelink({ ...current, busy: true, error: "" });
+    try {
+      const response = await fetch(`/api/downloads/${encodeURIComponent(current.job.id)}/relink`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmed: true, proof: current.preview!.proof }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok)
+        throw new Error(result.error || "Could not link this saved file.");
+      if (generation === relinkGeneration.current) {
+        setRelink(null);
+        setRelinkMessage("Saved file linked. You can play it in Flyx.");
+      }
+      await refresh();
+    } catch (error) {
+      if (generation === relinkGeneration.current)
+        setRelink({
+          ...current,
+          preview: null,
+          confirmed: false,
+          busy: false,
+          error: error instanceof Error ? error.message : "Could not link this saved file.",
+        });
+    }
+  }
+
   return (
     <main className="downloads-page content-container">
       <header className="downloads-header">
         <div>
           <span className="downloads-eyebrow">Offline library</span>
           <h1>Downloads</h1>
-          <p>Save movies and episodes, follow their progress, and manage completed files.</p>
+          <p>Save movies and episodes, follow their progress, and play completed files.</p>
         </div>
         <Link href="/browse" className="btn-primary">
           Find something to download
@@ -236,6 +339,145 @@ export default function DownloadsClient() {
         </div>
       )}
 
+      {jobs.some((job) => job.kind === "video" && job.status === "done" && !job.fileRevision) && (
+        <p className="download-device-note">
+          Your existing files can play in Flyx. Choose Link saved file, check the file details, and
+          confirm the matching movie or episode.
+        </p>
+      )}
+
+      {relinkMessage && (
+        <p className="download-device-note" role="status">
+          {relinkMessage}
+        </p>
+      )}
+      {relink && (
+        <section className="download-relink" aria-label="Link saved file">
+          <div className="download-relink-heading">
+            <div>
+              <h2>Link saved file</h2>
+              <strong>{relink.job.label}</strong>
+            </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={relink.busy}
+              onClick={() => {
+                relinkGeneration.current++;
+                setRelink(null);
+              }}
+            >
+              Close
+            </button>
+          </div>
+          <p>
+            {relink.job.malId ? `MAL ${relink.job.malId}` : `TMDB ${relink.job.tmdbId}`} ·{" "}
+            {relink.job.mediaType === "tv"
+              ? `Season ${relink.job.season}, Episode ${relink.job.episode}`
+              : "Movie"}
+            {relink.job.language ? ` · ${relink.job.language.toUpperCase()}` : ""}
+          </p>
+          <p>
+            Choose the existing file in your download folder. Flyx will link this queue entry
+            without moving or changing the file.
+          </p>
+          <label htmlFor="download-relink-filename">
+            Exact filename in {folder?.dir || "your download folder"}
+          </label>
+          <div className="download-relink-field">
+            <input
+              id="download-relink-filename"
+              value={relink.filename}
+              disabled={relink.busy}
+              onChange={(event) => {
+                relinkGeneration.current++;
+                setRelink({
+                  ...relink,
+                  filename: event.target.value,
+                  preview: null,
+                  confirmed: false,
+                  error: "",
+                });
+              }}
+            />
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={relink.busy || !relink.filename}
+              onClick={() => void checkSavedFile(relink.job, relink.filename)}
+            >
+              {relink.busy ? "Checking…" : "Check file"}
+            </button>
+          </div>
+          {relink.error && (
+            <p className="download-job-error" role="alert">
+              {relink.error}
+            </p>
+          )}
+          {relink.preview && (
+            <>
+              <dl className="download-relink-details">
+                <div>
+                  <dt>Saved file</dt>
+                  <dd>
+                    <code>{relink.preview.file.filepath}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Size</dt>
+                  <dd>{formatBytes(relink.preview.file.size)}</dd>
+                </div>
+                <div>
+                  <dt>Modified</dt>
+                  <dd>{new Date(relink.preview.file.modifiedAt).toLocaleString()}</dd>
+                </div>
+              </dl>
+              {relink.preview.relocated && (
+                <p>This file is in a different location from the original download record.</p>
+              )}
+              {relink.preview.replacement && (
+                <p>
+                  This file has changed since it was linked. Confirm its contents before linking it
+                  again.
+                </p>
+              )}
+              <p>
+                File details cannot prove which movie or episode is inside. Confirm the match before
+                using it as a playback source.
+              </p>
+              <label className="download-relink-confirm">
+                <input
+                  type="checkbox"
+                  checked={relink.confirmed}
+                  disabled={relink.busy}
+                  onChange={(event) => setRelink({ ...relink, confirmed: event.target.checked })}
+                />
+                This file is {relink.job.label}
+                {relink.job.mediaType === "tv"
+                  ? ` (Season ${relink.job.season}, Episode ${relink.job.episode})`
+                  : ""}
+                .
+              </label>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={!relink.confirmed || relink.busy}
+                onClick={() => void confirmSavedFile()}
+              >
+                {relink.busy ? "Linking…" : "Confirm and link file"}
+              </button>
+            </>
+          )}
+        </section>
+      )}
+
+      {jobs.some((job) => job.collection) && (
+        <p className="download-device-note">
+          CBZ collections open in a compatible comic reader. Cancel keeps completed pages for Retry.
+          Remove or Clear finished deletes unfinished collection cache and keeps any finished CBZ.
+        </p>
+      )}
+
       <section className="download-queue">
         <div className="download-queue-toolbar">
           <div>
@@ -284,6 +526,7 @@ export default function DownloadsClient() {
           <div className="download-job-list">
             {visibleJobs.map((job) => {
               const active = ACTIVE_STATUSES.has(job.status);
+              const playUrl = watchUrlForDownload(job);
               const indeterminate =
                 (job.status === "downloading" || job.status === "processing") &&
                 job.progress === 0 &&
@@ -298,7 +541,11 @@ export default function DownloadsClient() {
                       <div>
                         <h3>{job.label}</h3>
                         <p>
-                          {job.kind === "video" ? "Video" : "Manga"}
+                          {job.kind === "video"
+                            ? "Video"
+                            : job.collection
+                              ? `Manga CBZ · WeebCentral · ${job.collection.language.toUpperCase()} · ${job.collection.edition}`
+                              : "Manga"}
                           {job.quality ? ` · ${job.quality}` : ""}
                           {job.language ? ` · ${job.language.toUpperCase()}` : ""}
                         </p>
@@ -323,18 +570,74 @@ export default function DownloadsClient() {
                         </p>
                       </div>
                     )}
+                    {job.collectionProgress && (
+                      <p className="download-collection-progress" role="status">
+                        {job.status === "done"
+                          ? "Saved"
+                          : job.collectionProgress.phase === "packing"
+                            ? "Packing CBZ"
+                            : job.collectionProgress.phase === "resolving"
+                              ? "Finding available chapters"
+                              : job.collectionProgress.phase === "checking"
+                                ? "Checking saved pages"
+                                : "Downloading pages"}
+                        {job.collectionProgress.chaptersTotal > 0 &&
+                          ` · ${job.collectionProgress.chaptersDone}/${job.collectionProgress.chaptersTotal} chapters`}
+                        {job.collectionProgress.phase !== "packing" &&
+                          job.collectionProgress.currentChapter != null &&
+                          ` · Ch. ${job.collectionProgress.currentChapter}`}
+                        {job.collectionProgress.pageTotal > 0 &&
+                          ` · ${job.collectionProgress.pageDone}/${job.collectionProgress.pageTotal} pages`}
+                      </p>
+                    )}
                     {job.error && <p className="download-job-error">{job.error}</p>}
                     {job.filepath && job.status === "done" && (
                       <code className="download-job-path">{job.filepath}</code>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    className={active ? "download-job-cancel" : "download-job-remove"}
-                    onClick={() => void removeJob(job.id)}
-                  >
-                    {active ? "Cancel" : "Remove"}
-                  </button>
+                  <div className="download-job-actions">
+                    {job.collection && ["error", "cancelled"].includes(job.status) && (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        aria-label={`Retry ${job.label}`}
+                        onClick={() => void retryCollection(job.id)}
+                      >
+                        Retry
+                      </button>
+                    )}
+                    {downloadIdentity(job) && (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        aria-label={`${job.fileRevision ? "Relink" : "Link saved file for"} ${job.label}`}
+                        onClick={() =>
+                          void checkSavedFile(
+                            job,
+                            job.filepath?.split("/").pop() || job.filename || "",
+                          )
+                        }
+                      >
+                        {job.fileRevision ? "Relink file" : "Link saved file"}
+                      </button>
+                    )}
+                    {playUrl && (
+                      <Link
+                        href={playUrl}
+                        className="btn-secondary"
+                        aria-label={`Play ${job.label}`}
+                      >
+                        Play
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      className={active ? "download-job-cancel" : "download-job-remove"}
+                      onClick={() => void removeJob(job.id)}
+                    >
+                      {active ? "Cancel" : "Remove"}
+                    </button>
+                  </div>
                 </article>
               );
             })}

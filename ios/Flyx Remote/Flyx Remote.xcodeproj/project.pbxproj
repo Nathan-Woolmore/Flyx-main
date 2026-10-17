@@ -1,0 +1,450 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		02279E6D6DCAECC32CE00B68 /* PlaybackSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4E422BEE2DFE0BFE101F27 /* PlaybackSession.swift */; };
+		128D9F59023D967A8689CC04 /* TitleDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2453871608DBC272BCB16EC7 /* TitleDetailView.swift */; };
+		1418B35F46F626DB6F0DE77E /* GlassCategorySelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C89F0919A306E665589C5B1 /* GlassCategorySelector.swift */; };
+		18EEB8681CE4EDB9A208814D /* RemoteControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93246043AE3ACC95DCABBA2A /* RemoteControls.swift */; };
+		19063B48D3B671349D1A2A45 /* NativeSwitchingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF8F8D2CE746C427F7A9D50C /* NativeSwitchingFixture.swift */; };
+		1AFB496195C9C1CEA7F10BD3 /* RemoteProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21EA6F0EB22F4F7EF005B76F /* RemoteProgress.swift */; };
+		2F71812C79D1D3B7C7AA00C9 /* RemoteWatchlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD257C8BB80012445EDF15CE /* RemoteWatchlist.swift */; };
+		30FB911F2746A8FBE2EC7F88 /* RemoteCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A52FCA0ED608DF70EB7C3BC /* RemoteCompatibility.swift */; };
+		3803C560ACA84C6399190EA5 /* PhonePlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA04F95CA8D07F503F2B2385 /* PhonePlayback.swift */; };
+		584F52F9F640D7C44CBE164D /* ConnectionVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7BED35A175EE75F1B8E6492 /* ConnectionVerification.swift */; };
+		674E67B1A1676CB5EFC703C8 /* PhoneVideoSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED20B472088E627B83CC082 /* PhoneVideoSurface.swift */; };
+		6ABFE25F008E9C8C4DF24E84 /* RemoteLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42E37BA41C9C75556746EF8B /* RemoteLibraryView.swift */; };
+		6D4B04ED7A5FD3723D9BDB92 /* CatalogReadOnlyVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BA84B749D18492EC29B6030 /* CatalogReadOnlyVerification.swift */; };
+		72EEE7332DFF32CD7067BDCC /* UIFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6405060903370AB303FD7E2C /* UIFixtures.swift */; };
+		77EFE66232C73C66533FCB43 /* CatalogBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E821AC4251A2724695773494 /* CatalogBrowser.swift */; };
+		7B06B61A5E80EF66413DC1F9 /* LoadingShimmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7461B6C6E3E5463F4C9DF52 /* LoadingShimmer.swift */; };
+		7B5FF80C117D6491EFD94F4A /* MangaProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE93A0C927B23D8D9D08EA3 /* MangaProgress.swift */; };
+		7D13258906B3A3853CE8A4BB /* KeyboardDismissButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48E065E57C21C8DC276DDAFD /* KeyboardDismissButton.swift */; };
+		7F7B4A1B341A6170736A216E /* RemoteClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D95A67AA63C1DECF546DCF73 /* RemoteClient.swift */; };
+		99BBF7D0A12408BFB5FD3048 /* PinnedSessionDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D00693193C54320624517E /* PinnedSessionDelegate.swift */; };
+		AA608705694A3A83C65C20E7 /* NativeProgressFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB728AECBAAB4F111CD8D4A7 /* NativeProgressFixture.swift */; };
+		B128E0260063AC68661AD286 /* MangaReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774CCD2BA0748DE287D23DA2 /* MangaReader.swift */; };
+		B1F4FC4A4040BA37CB43B3BA /* RememberedConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98A3DC68551F4D37C8B9D68A /* RememberedConnection.swift */; };
+		B5301DD9998B928C5DFD3346 /* MacConnectionIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C9CCA27EBE26DC95C1B9AC8 /* MacConnectionIndicator.swift */; };
+		B953ED49FC7B1BC194BE572D /* MacSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0575EA5D7006DD4C71B5D207 /* MacSources.swift */; };
+		BC9921327A8F6EF50329DF67 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6679F8D080FC67965AA20FD7 /* Assets.xcassets */; };
+		BD8EC2129B933680916F2B60 /* TouchVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C2A474842D25723B805EF0 /* TouchVerification.swift */; };
+		C30F2CBDF0C60CCB14747394 /* UnifiedPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA4484B0E27407EE40A9E9B4 /* UnifiedPlayer.swift */; };
+		C3CF8E2C3BE56A213E13AF85 /* BaselineCatalogueFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74181A16D63A1A069EAC1173 /* BaselineCatalogueFixture.swift */; };
+		C957A508B18612664031314E /* DestinationTransfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE76C38419797E6EFF405EB0 /* DestinationTransfers.swift */; };
+		D608A48253B981B06292E421 /* LoopbackHLS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FCC57678C2BADED9748A5EF /* LoopbackHLS.swift */; };
+		D657C4D7B28864CCA873A3C2 /* FlyxRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37BF7C008201F41DF757F3C9 /* FlyxRemoteApp.swift */; };
+		E26CA4042CFAE8A029170DD7 /* KeyboardButtonGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EC748AB9C69D960D48AC570 /* KeyboardButtonGeometry.swift */; };
+		F8C9DCCAF965A105E2B7A21C /* FlyxTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E5505E14B8FC1F56E779CF5 /* FlyxTheme.swift */; };
+		FCA6FA205402ADC750719FA8 /* SeriesReadOnlyVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804AA1FF3E5684B83DE7A4A0 /* SeriesReadOnlyVerification.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0575EA5D7006DD4C71B5D207 /* MacSources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSources.swift; sourceTree = "<group>"; };
+		1E5505E14B8FC1F56E779CF5 /* FlyxTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlyxTheme.swift; sourceTree = "<group>"; };
+		21EA6F0EB22F4F7EF005B76F /* RemoteProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteProgress.swift; sourceTree = "<group>"; };
+		2453871608DBC272BCB16EC7 /* TitleDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleDetailView.swift; sourceTree = "<group>"; };
+		25D00693193C54320624517E /* PinnedSessionDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedSessionDelegate.swift; sourceTree = "<group>"; };
+		2BA84B749D18492EC29B6030 /* CatalogReadOnlyVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogReadOnlyVerification.swift; sourceTree = "<group>"; };
+		2EC748AB9C69D960D48AC570 /* KeyboardButtonGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardButtonGeometry.swift; sourceTree = "<group>"; };
+		37BF7C008201F41DF757F3C9 /* FlyxRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlyxRemoteApp.swift; sourceTree = "<group>"; };
+		3FCC57678C2BADED9748A5EF /* LoopbackHLS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopbackHLS.swift; sourceTree = "<group>"; };
+		42E37BA41C9C75556746EF8B /* RemoteLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLibraryView.swift; sourceTree = "<group>"; };
+		48E065E57C21C8DC276DDAFD /* KeyboardDismissButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardDismissButton.swift; sourceTree = "<group>"; };
+		5A52FCA0ED608DF70EB7C3BC /* RemoteCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCompatibility.swift; sourceTree = "<group>"; };
+		5C89F0919A306E665589C5B1 /* GlassCategorySelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCategorySelector.swift; sourceTree = "<group>"; };
+		6405060903370AB303FD7E2C /* UIFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIFixtures.swift; sourceTree = "<group>"; };
+		6679F8D080FC67965AA20FD7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		74181A16D63A1A069EAC1173 /* BaselineCatalogueFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaselineCatalogueFixture.swift; sourceTree = "<group>"; };
+		75925B6CD95B33083C640089 /* Flyx Remote.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Flyx Remote.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		774CCD2BA0748DE287D23DA2 /* MangaReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MangaReader.swift; sourceTree = "<group>"; };
+		7BE93A0C927B23D8D9D08EA3 /* MangaProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MangaProgress.swift; sourceTree = "<group>"; };
+		7C9CCA27EBE26DC95C1B9AC8 /* MacConnectionIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConnectionIndicator.swift; sourceTree = "<group>"; };
+		804AA1FF3E5684B83DE7A4A0 /* SeriesReadOnlyVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeriesReadOnlyVerification.swift; sourceTree = "<group>"; };
+		93246043AE3ACC95DCABBA2A /* RemoteControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControls.swift; sourceTree = "<group>"; };
+		98A3DC68551F4D37C8B9D68A /* RememberedConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RememberedConnection.swift; sourceTree = "<group>"; };
+		9C4E422BEE2DFE0BFE101F27 /* PlaybackSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSession.swift; sourceTree = "<group>"; };
+		AED20B472088E627B83CC082 /* PhoneVideoSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneVideoSurface.swift; sourceTree = "<group>"; };
+		AF8F8D2CE746C427F7A9D50C /* NativeSwitchingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSwitchingFixture.swift; sourceTree = "<group>"; };
+		B7BED35A175EE75F1B8E6492 /* ConnectionVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionVerification.swift; sourceTree = "<group>"; };
+		C7461B6C6E3E5463F4C9DF52 /* LoadingShimmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingShimmer.swift; sourceTree = "<group>"; };
+		C9C2A474842D25723B805EF0 /* TouchVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TouchVerification.swift; sourceTree = "<group>"; };
+		CA4484B0E27407EE40A9E9B4 /* UnifiedPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedPlayer.swift; sourceTree = "<group>"; };
+		D95A67AA63C1DECF546DCF73 /* RemoteClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteClient.swift; sourceTree = "<group>"; };
+		DB728AECBAAB4F111CD8D4A7 /* NativeProgressFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeProgressFixture.swift; sourceTree = "<group>"; };
+		DD257C8BB80012445EDF15CE /* RemoteWatchlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWatchlist.swift; sourceTree = "<group>"; };
+		E821AC4251A2724695773494 /* CatalogBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogBrowser.swift; sourceTree = "<group>"; };
+		EE76C38419797E6EFF405EB0 /* DestinationTransfers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationTransfers.swift; sourceTree = "<group>"; };
+		FA04F95CA8D07F503F2B2385 /* PhonePlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePlayback.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		39C9189EED3039E41F51F767 = {
+			isa = PBXGroup;
+			children = (
+				84716CFADA34A331CED607DB /* App */,
+				A0B1FA2391BF7A67D99F617C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		84716CFADA34A331CED607DB /* App */ = {
+			isa = PBXGroup;
+			children = (
+				6679F8D080FC67965AA20FD7 /* Assets.xcassets */,
+				74181A16D63A1A069EAC1173 /* BaselineCatalogueFixture.swift */,
+				E821AC4251A2724695773494 /* CatalogBrowser.swift */,
+				2BA84B749D18492EC29B6030 /* CatalogReadOnlyVerification.swift */,
+				B7BED35A175EE75F1B8E6492 /* ConnectionVerification.swift */,
+				EE76C38419797E6EFF405EB0 /* DestinationTransfers.swift */,
+				37BF7C008201F41DF757F3C9 /* FlyxRemoteApp.swift */,
+				1E5505E14B8FC1F56E779CF5 /* FlyxTheme.swift */,
+				5C89F0919A306E665589C5B1 /* GlassCategorySelector.swift */,
+				2EC748AB9C69D960D48AC570 /* KeyboardButtonGeometry.swift */,
+				48E065E57C21C8DC276DDAFD /* KeyboardDismissButton.swift */,
+				C7461B6C6E3E5463F4C9DF52 /* LoadingShimmer.swift */,
+				3FCC57678C2BADED9748A5EF /* LoopbackHLS.swift */,
+				7C9CCA27EBE26DC95C1B9AC8 /* MacConnectionIndicator.swift */,
+				0575EA5D7006DD4C71B5D207 /* MacSources.swift */,
+				7BE93A0C927B23D8D9D08EA3 /* MangaProgress.swift */,
+				774CCD2BA0748DE287D23DA2 /* MangaReader.swift */,
+				DB728AECBAAB4F111CD8D4A7 /* NativeProgressFixture.swift */,
+				AF8F8D2CE746C427F7A9D50C /* NativeSwitchingFixture.swift */,
+				FA04F95CA8D07F503F2B2385 /* PhonePlayback.swift */,
+				AED20B472088E627B83CC082 /* PhoneVideoSurface.swift */,
+				25D00693193C54320624517E /* PinnedSessionDelegate.swift */,
+				9C4E422BEE2DFE0BFE101F27 /* PlaybackSession.swift */,
+				98A3DC68551F4D37C8B9D68A /* RememberedConnection.swift */,
+				D95A67AA63C1DECF546DCF73 /* RemoteClient.swift */,
+				5A52FCA0ED608DF70EB7C3BC /* RemoteCompatibility.swift */,
+				93246043AE3ACC95DCABBA2A /* RemoteControls.swift */,
+				42E37BA41C9C75556746EF8B /* RemoteLibraryView.swift */,
+				21EA6F0EB22F4F7EF005B76F /* RemoteProgress.swift */,
+				DD257C8BB80012445EDF15CE /* RemoteWatchlist.swift */,
+				804AA1FF3E5684B83DE7A4A0 /* SeriesReadOnlyVerification.swift */,
+				2453871608DBC272BCB16EC7 /* TitleDetailView.swift */,
+				C9C2A474842D25723B805EF0 /* TouchVerification.swift */,
+				6405060903370AB303FD7E2C /* UIFixtures.swift */,
+				CA4484B0E27407EE40A9E9B4 /* UnifiedPlayer.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A0B1FA2391BF7A67D99F617C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				75925B6CD95B33083C640089 /* Flyx Remote.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5DD568FE0571A66E234D3B6F /* Flyx Remote */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A4ADEA3A1BB01DD906FB5DE4 /* Build configuration list for PBXNativeTarget "Flyx Remote" */;
+			buildPhases = (
+				CB2F0ECB025846A3370FE11E /* Sources */,
+				35696A8BB3143B38DCBC2C53 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Flyx Remote";
+			packageProductDependencies = (
+			);
+			productName = "Flyx Remote";
+			productReference = 75925B6CD95B33083C640089 /* Flyx Remote.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		76F8FE69FC60C0EB62F406E5 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					5DD568FE0571A66E234D3B6F = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 749273C145D9669753BFF40B /* Build configuration list for PBXProject "Flyx Remote" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 39C9189EED3039E41F51F767;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A0B1FA2391BF7A67D99F617C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5DD568FE0571A66E234D3B6F /* Flyx Remote */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		35696A8BB3143B38DCBC2C53 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BC9921327A8F6EF50329DF67 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		CB2F0ECB025846A3370FE11E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C3CF8E2C3BE56A213E13AF85 /* BaselineCatalogueFixture.swift in Sources */,
+				77EFE66232C73C66533FCB43 /* CatalogBrowser.swift in Sources */,
+				6D4B04ED7A5FD3723D9BDB92 /* CatalogReadOnlyVerification.swift in Sources */,
+				584F52F9F640D7C44CBE164D /* ConnectionVerification.swift in Sources */,
+				C957A508B18612664031314E /* DestinationTransfers.swift in Sources */,
+				D657C4D7B28864CCA873A3C2 /* FlyxRemoteApp.swift in Sources */,
+				F8C9DCCAF965A105E2B7A21C /* FlyxTheme.swift in Sources */,
+				1418B35F46F626DB6F0DE77E /* GlassCategorySelector.swift in Sources */,
+				E26CA4042CFAE8A029170DD7 /* KeyboardButtonGeometry.swift in Sources */,
+				7D13258906B3A3853CE8A4BB /* KeyboardDismissButton.swift in Sources */,
+				7B06B61A5E80EF66413DC1F9 /* LoadingShimmer.swift in Sources */,
+				D608A48253B981B06292E421 /* LoopbackHLS.swift in Sources */,
+				B5301DD9998B928C5DFD3346 /* MacConnectionIndicator.swift in Sources */,
+				B953ED49FC7B1BC194BE572D /* MacSources.swift in Sources */,
+				7B5FF80C117D6491EFD94F4A /* MangaProgress.swift in Sources */,
+				B128E0260063AC68661AD286 /* MangaReader.swift in Sources */,
+				AA608705694A3A83C65C20E7 /* NativeProgressFixture.swift in Sources */,
+				19063B48D3B671349D1A2A45 /* NativeSwitchingFixture.swift in Sources */,
+				3803C560ACA84C6399190EA5 /* PhonePlayback.swift in Sources */,
+				674E67B1A1676CB5EFC703C8 /* PhoneVideoSurface.swift in Sources */,
+				99BBF7D0A12408BFB5FD3048 /* PinnedSessionDelegate.swift in Sources */,
+				02279E6D6DCAECC32CE00B68 /* PlaybackSession.swift in Sources */,
+				B1F4FC4A4040BA37CB43B3BA /* RememberedConnection.swift in Sources */,
+				7F7B4A1B341A6170736A216E /* RemoteClient.swift in Sources */,
+				30FB911F2746A8FBE2EC7F88 /* RemoteCompatibility.swift in Sources */,
+				18EEB8681CE4EDB9A208814D /* RemoteControls.swift in Sources */,
+				6ABFE25F008E9C8C4DF24E84 /* RemoteLibraryView.swift in Sources */,
+				1AFB496195C9C1CEA7F10BD3 /* RemoteProgress.swift in Sources */,
+				2F71812C79D1D3B7C7AA00C9 /* RemoteWatchlist.swift in Sources */,
+				FCA6FA205402ADC750719FA8 /* SeriesReadOnlyVerification.swift in Sources */,
+				128D9F59023D967A8689CC04 /* TitleDetailView.swift in Sources */,
+				BD8EC2129B933680916F2B60 /* TouchVerification.swift in Sources */,
+				72EEE7332DFF32CD7067BDCC /* UIFixtures.swift in Sources */,
+				C30F2CBDF0C60CCB14747394 /* UnifiedPlayer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		6AE7713EDDC02EB2832A42ED /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Config/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.flyx.remote;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		7353C7D21B2FB70A62C82AE5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Config/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.flyx.remote;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D59A18EE4FA445FD5FC2536F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 40;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Flyx Remote";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your paired Mac to browse Flyx and control playback and downloads.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		EA2348D9F55493EBFBE4E47F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 40;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Flyx Remote";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your paired Mac to browse Flyx and control playback and downloads.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		749273C145D9669753BFF40B /* Build configuration list for PBXProject "Flyx Remote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EA2348D9F55493EBFBE4E47F /* Debug */,
+				D59A18EE4FA445FD5FC2536F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A4ADEA3A1BB01DD906FB5DE4 /* Build configuration list for PBXNativeTarget "Flyx Remote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7353C7D21B2FB70A62C82AE5 /* Debug */,
+				6AE7713EDDC02EB2832A42ED /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 76F8FE69FC60C0EB62F406E5 /* Project object */;
+}

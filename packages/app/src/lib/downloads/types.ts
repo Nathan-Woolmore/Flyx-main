@@ -9,16 +9,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getSetting } from "@/lib/db";
+import type {
+  MangaCollectionPlan,
+  MangaCollectionProgress,
+  MangaCollectionScope,
+} from "./manga-collection-types";
 
 export type DownloadKind = "video" | "manga";
 
 export type DownloadPhase =
-  | "queued"
-  | "downloading"
-  | "processing"
-  | "done"
-  | "error"
-  | "cancelled";
+  "queued" | "downloading" | "processing" | "done" | "error" | "cancelled";
 
 /** A single downloadable item as submitted by the client. */
 export type DownloadItemInput =
@@ -42,6 +42,7 @@ export type DownloadItemInput =
       mangaId: string;
       chapter: number;
       title?: string;
+      collection?: MangaCollectionScope;
     };
 
 export interface DownloadJob {
@@ -56,6 +57,10 @@ export interface DownloadJob {
   durationSec?: number;
   filename?: string;
   filepath?: string;
+  /** Binds new completed downloads to their finalized physical file. */
+  fileRevision?: string;
+  /** Set only after the host confirms a saved file belongs to this exact title/episode. */
+  fileRelinkedAt?: number;
   error?: string;
   // request fields (video)
   tmdbId?: number;
@@ -69,6 +74,10 @@ export interface DownloadJob {
   // request fields (manga)
   mangaId?: string;
   chapter?: number;
+  collection?: MangaCollectionScope;
+  collectionPlan?: MangaCollectionPlan;
+  collectionProgress?: MangaCollectionProgress;
+  collectionRoot?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -96,10 +105,11 @@ export function sanitizeFilename(name: string, maxLength = MAX_FILENAME_LENGTH):
   const chars = Array.from(cleaned);
   if (chars.length > maxLength) {
     const ext = /\.[A-Za-z0-9]{1,8}$/.exec(cleaned)?.[0] ?? "";
-    cleaned = chars
-      .slice(0, maxLength - ext.length)
-      .join("")
-      .replace(/[. ]+$/, "") + ext;
+    cleaned =
+      chars
+        .slice(0, maxLength - ext.length)
+        .join("")
+        .replace(/[. ]+$/, "") + ext;
   }
 
   if (!cleaned) return "download";
@@ -112,12 +122,13 @@ export function sanitizeFilename(name: string, maxLength = MAX_FILENAME_LENGTH):
 const TITLE_MAX_LENGTH = MAX_FILENAME_LENGTH - 30;
 
 /** Human/disk filename for a downloadable item (shared by queue + direct stream). */
-export function buildFilename(item: DownloadItemInput): string {
+function baseFilename(item: DownloadItemInput): string {
   if (item.kind === "video") {
     // Leave room for the " - S01E02 (Dub).mp4" suffix within the length cap.
     const t = sanitizeFilename(item.title || "Video", TITLE_MAX_LENGTH);
-    const audioSuffix = item.language === "dub" ? " (Dub)" : item.language === "sub" ? " (Sub)" : "";
-    if (item.mediaType === "tv" && item.season && item.episode) {
+    const audioSuffix =
+      item.language === "dub" ? " (Dub)" : item.language === "sub" ? " (Sub)" : "";
+    if (item.mediaType === "tv" && item.season != null && item.episode != null) {
       const e = String(item.episode).padStart(2, "0");
       // Anime uses absolute episode numbers (no season), e.g. "E05".
       if (item.malId) return `${t} - E${e}${audioSuffix}.mp4`;
@@ -127,7 +138,21 @@ export function buildFilename(item: DownloadItemInput): string {
     return `${t}${audioSuffix}.mp4`;
   }
   const t = sanitizeFilename(item.title || "Manga", TITLE_MAX_LENGTH);
-  return `${t} - Chapter ${item.chapter}.cbz`;
+  return item.collection
+    ? `${t} - Available chapters (${item.collection.language}-${item.collection.edition}).cbz`
+    : `${t} - Chapter ${item.chapter}.cbz`;
+}
+
+/** Queue files never overwrite another completed download, even for identical titles. */
+export function buildFilename(item: DownloadItemInput, jobId?: string): string {
+  const filename = baseFilename(item);
+  if (!jobId) return filename;
+  if (!/^[a-f0-9-]{36}$/i.test(jobId)) throw new Error("Invalid download id");
+  const ext = path.extname(filename);
+  const characters = Array.from(filename.slice(0, -ext.length)).slice(0, 100);
+  while (Buffer.byteLength(`${characters.join("")} - ${jobId}${ext}`, "utf8") > 240)
+    characters.pop();
+  return `${characters.join("")} - ${jobId}${ext}`;
 }
 
 /** Resolve the download directory (custom setting → desktop default → ~/Downloads). */

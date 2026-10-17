@@ -4,13 +4,7 @@ import { useMemo } from "react";
 import { Slider } from "@/components/ui/Slider";
 import { GENRES } from "@/lib/constants/genres";
 
-interface SearchFilters {
-  contentType: "movie" | "tv" | "anime";
-  genres: string[];
-  yearRange: [number, number];
-  minRating: number;
-  sortBy: "relevance" | "rating" | "release_date" | "popularity";
-}
+import type { SearchFilters } from "@/lib/search/state";
 
 interface SearchSidebarProps {
   filters: SearchFilters;
@@ -85,6 +79,7 @@ export function SearchSidebar({ filters, onFilterChange, className = "" }: Searc
               <button
                 key={type.id}
                 type="button"
+                aria-pressed={active}
                 className={active ? "active" : undefined}
                 onClick={() => onFilterChange({ contentType: type.id, genres: [] })}
               >
@@ -110,6 +105,7 @@ export function SearchSidebar({ filters, onFilterChange, className = "" }: Searc
       <section className="search-filter-section">
         <h3>Sort results</h3>
         <select
+          aria-label="Sort results"
           value={filters.sortBy}
           onChange={(event) =>
             onFilterChange({ sortBy: event.target.value as SearchFilters["sortBy"] })
@@ -132,6 +128,7 @@ export function SearchSidebar({ filters, onFilterChange, className = "" }: Searc
             <button
               key={genre.id}
               type="button"
+              aria-pressed={filters.genres.includes(genre.slug)}
               className={filters.genres.includes(genre.slug) ? "active" : undefined}
               onClick={() => toggleGenre(genre.slug)}
             >
@@ -149,6 +146,7 @@ export function SearchSidebar({ filters, onFilterChange, className = "" }: Searc
           </span>
         </div>
         <Slider
+          label="Release year"
           min={1900}
           max={new Date().getFullYear()}
           value={filters.yearRange}
@@ -162,6 +160,7 @@ export function SearchSidebar({ filters, onFilterChange, className = "" }: Searc
           <span>{filters.minRating > 0 ? `${filters.minRating}+` : "Any rating"}</span>
         </div>
         <Slider
+          label="Minimum rating"
           min={0}
           max={10}
           step={0.5}

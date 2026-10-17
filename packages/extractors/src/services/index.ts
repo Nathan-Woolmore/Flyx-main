@@ -23,6 +23,8 @@ export {
   getMangaDetails,
   getMangaDetailsWithChapters,
   getChapterPages,
+  getChapterPagesById,
+  getMangaCollectionDetails,
   getPopularManga,
   getLatestManga,
   getActionManga,

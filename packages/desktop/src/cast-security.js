@@ -34,7 +34,7 @@ function validateMedia(payload, origins) {
   if (
     u.protocol !== "http:" || u.username || u.password || u.hash ||
     !origins.includes(u.origin) || !isPrivateIPv4(u.hostname) ||
-    !["/api/stream/proxy", "/api/livetv/playlist"].includes(u.pathname) ||
+    !["/api/stream/proxy", "/api/livetv/playlist", "/api/stream/local"].includes(u.pathname) ||
     !/^[A-Za-z0-9_-]{43}$/.test(u.searchParams.get("sig") || "") ||
     !Number.isFinite(Number(u.searchParams.get("exp"))) ||
     Number(u.searchParams.get("exp")) <= Date.now() / 1000
@@ -51,7 +51,9 @@ function validateMedia(payload, origins) {
   if (typeof startTime !== "number" || !Number.isFinite(startTime) || startTime < 0 || startTime > 604800) {
     throw new Error("Invalid playback position.");
   }
+  if (payload.autoplay !== undefined && typeof payload.autoplay !== "boolean") throw new Error("Invalid autoplay setting.");
   return {
+    autoplay: payload.autoplay !== false,
     media: {
       contentId: u.href,
       contentType,

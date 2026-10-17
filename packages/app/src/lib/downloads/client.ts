@@ -25,6 +25,7 @@ export function isDesktopHost(): boolean {
 export function buildStreamUrl(item: DownloadItemInput): string {
   const q = new URLSearchParams();
   if (item.kind === "manga") {
+    if (item.collection) throw new Error("Combined CBZ downloads require the desktop app.");
     q.set("kind", "manga");
     q.set("mangaId", item.mangaId);
     q.set("chapter", String(item.chapter));
@@ -33,7 +34,7 @@ export function buildStreamUrl(item: DownloadItemInput): string {
     q.set("kind", "video");
     q.set("tmdbId", String(item.tmdbId));
     q.set("mediaType", item.mediaType);
-    if (item.season) q.set("season", String(item.season));
+    if (item.season != null) q.set("season", String(item.season));
     if (item.episode) q.set("episode", String(item.episode));
     if (item.malId) q.set("malId", String(item.malId));
     if (item.title) q.set("title", item.title);
@@ -98,6 +99,9 @@ export async function deliverDownloads(
       return { ok: false, host: true, error: "Network error" };
     }
   }
+
+  if (items.some((item) => item.kind === "manga" && item.collection))
+    return { ok: false, host: false, error: "Combined CBZ downloads require the desktop app." };
 
   // Remote device — stream each file to this browser. Stagger slightly so
   // bulk requests don't trip a browser's simultaneous-download guard.

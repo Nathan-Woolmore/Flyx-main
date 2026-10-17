@@ -144,3 +144,5 @@ describe("native Cast V2 protocol", () => {
     await expect(f.transport.control({ type: "pause" })).rejects.toThrow("No movie"); f.transport.close();
   });
 });
+
+it('loads a prepared receiver paused, after the existing silent-policy acknowledgement',async()=>{const f=await connectedFixture();const pending=f.transport.load({contentId:'http://192.168.1.50/fixture.mp4',contentType:'video/mp4'},33.25,false);const mute=f.sent().at(-1);f.reply(NS.receiver,{type:'RECEIVER_STATUS',requestId:mute.data.requestId,status:{volume:{muted:true,level:0}}});await new Promise(r=>setImmediate(r));const load=f.sent().at(-1);expect(load.data).toMatchObject({type:'LOAD',autoplay:false,currentTime:33.25});f.reply(NS.media,{type:'MEDIA_STATUS',requestId:load.data.requestId,status:[{mediaSessionId:8,playerState:'PAUSED',currentTime:33.25}]},'web-1');await pending;f.transport.close();});

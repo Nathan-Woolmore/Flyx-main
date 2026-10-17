@@ -47,7 +47,7 @@ if (!app.isPackaged && !process.env.FLYX_DATA_DIR) {
   process.env.FLYX_DATA_DIR = path.join(__dirname, "..", "..", ".flyx-dev-data");
 }
 
-const { PORT, envPath, serverLog } = require("./src/paths");
+const { PORT, DATA_DIR, envPath, serverLog } = require("./src/paths");
 const { bootstrap, readEnv, updateEnv, ensureMasterToken, ensureSecrets } = require("./src/env-store");
 const server = require("./src/server-manager");
 const { getLANURLs, getLocalURL, isPortInUse } = require("./src/network");
@@ -1019,7 +1019,25 @@ function handleTrusted(channel, handler) {
   });
 }
 
+let remoteBridgeCandidate;
+app.on("before-quit",()=>{void remoteBridgeCandidate?.dispose();});
 function registerIpc() {
+  // A private local opt-in survives ordinary app relaunches. No identity or pairing is generated here.
+  Promise.all([import("./src/remote/electron-bridge.mjs"),import("./src/remote/configuration.mjs"),import("./src/remote/device-store.mjs")]).then(async ([{installRemoteBridge},{loadRemoteConfiguration},{createDeviceStore}]) => {
+    let remoteConfig;
+    try { remoteConfig=loadRemoteConfiguration({dataDir:DATA_DIR}); }
+    catch { server.log("[remote] private configuration invalid or LAN address unavailable; remote remains off"); }
+    remoteBridgeCandidate = installRemoteBridge({mediaOrigin:`http://127.0.0.1:${currentPort}`,audioLocked:isSilentCastTest,handleTrusted,
+      deviceStore:remoteConfig?createDeviceStore(path.join(DATA_DIR,"remote")):undefined,
+      tlsProvider:remoteConfig?.tlsProvider,persistEnabled:remoteConfig?.persistEnabled,
+      transportHost:remoteConfig?.bindAddress,transportAllowedHosts:remoteConfig?[remoteConfig.host]:undefined,transportEndpoint:remoteConfig?.endpoint,
+      isMainFrame: event => isTrustedCastSender(event, mainWindow, currentPort),
+      send: (channel,payload) => {
+        if (!mainWindow || mainWindow.isDestroyed() || !isTrustedCastSender({sender:mainWindow.webContents,senderFrame:mainWindow.webContents.mainFrame},mainWindow,currentPort)) throw new Error("Mac renderer unavailable");
+        mainWindow.webContents.send(channel,payload);
+      }});
+    if(remoteConfig?.enabled)await remoteBridgeCandidate.resume();
+  }).catch(() => server.log("[remote] remote could not resume; use Settings to retry"));
   castService = new CastService({
     getOrigins: () => currentHostname === "0.0.0.0" ? getLANURLs(currentPort).map((item) => item.url) : [],
   });

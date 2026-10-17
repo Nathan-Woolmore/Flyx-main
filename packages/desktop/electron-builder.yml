@@ -18,7 +18,11 @@ files:
   - main.js
   - preload.js
   - src/**/*.js
+  - src/**/*.mjs
   - package.json
+  # iOS remains source-only in this monorepo, outside the desktop payload.
+  - "!../../ios/**"
+  - "!../../tests/remote/**"
 
 extraResources:
   - from: ../../.flyx-standalone

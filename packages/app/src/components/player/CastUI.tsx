@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DesktopCastPickerState } from '@/lib/desktop-cast';
 import styles from './CastUI.module.css';
 import { formatTime } from './stream-proxy';
-import { IconPause, IconPlay } from './icons';
+import { IconPause, IconPlay, IconVolume, IconVolumeMute } from './icons';
 
 export function IconCast({ size = 22, active = false }: { size?: number; active?: boolean }) {
   return (
@@ -139,11 +139,12 @@ export function CastOverlay({
           </button>
         </div>
         {onVolume && (
-          <div className={styles.controls}>
-            <button type="button" className={styles.controlBtn} onClick={onMute} aria-label={isMuted ? 'Unmute TV' : 'Mute TV'}>
-              {isMuted ? 'Unmute' : 'Mute'}
+          <div className={styles.volumeControls}>
+            <button type="button" className={styles.muteBtn} onClick={onMute} aria-label={isMuted ? 'Unmute TV' : 'Mute TV'}>
+              {isMuted ? <IconVolumeMute size={18} /> : <IconVolume size={18} />}
+              <span>{isMuted ? 'Unmute' : 'Mute'}</span>
             </button>
-            <input type="range" min={0} max={1} step={0.05} value={volume}
+            <input className={styles.volumeRange} type="range" min={0} max={1} step={0.05} value={volume}
               aria-label="TV volume" onChange={(event) => onVolume(Number(event.target.value))} />
           </div>
         )}
@@ -181,18 +182,28 @@ export function DesktopCastPicker({ picker }: { picker: DesktopCastPickerState }
           <button type="button" className={styles.controlBtn} onClick={picker.cancel} aria-label="Close TV picker">Close</button>
         </div>
         <p>The TV plays the movie directly. Casting starts muted. Keep Flyx open and LAN sharing enabled.</p>
-        <div aria-live="polite">
-          {picker.connecting ? 'Connecting to TV…' : picker.discovering ? 'Searching your home network…' : !picker.devices.length ? 'No Google Cast TVs found. Wake the TV and check that it uses the same home network.' : 'Choose a TV'}
+        <div className={`${styles.searchStatus} ${picker.discovering ? styles.searching : ''}`} role="status" aria-busy={picker.discovering || picker.connecting}>
+          {picker.discovering && (
+            <span className={styles.searchIndicator} aria-hidden="true"><IconCast size={18} /></span>
+          )}
+          <span>{picker.connecting ? 'Connecting to TV…' : picker.discovering ? 'Searching your home network…' : !picker.devices.length ? 'No Google Cast TVs found. Wake the TV and check that it uses the same home network.' : 'Choose a TV'}</span>
         </div>
-        <div className={styles.deviceList}>
-          {picker.devices.map((device) => (
-            <button key={device.id} type="button" className={styles.device} disabled={picker.connecting}
-              onClick={() => picker.select({ id: device.id })}>
-              <IconCast size={22} /><span><strong>{device.name}</strong><small>{device.model || 'Google Cast'} · {device.address}</small></span>
-            </button>
-          ))}
-        </div>
-        <button type="button" className={styles.stopBtn} disabled={picker.discovering || picker.connecting} onClick={picker.refresh}>Search again</button>
+        {picker.devices.length > 0 && (
+          <div className={styles.deviceList}>
+            {picker.devices.map((device) => (
+              <button key={device.id} type="button" className={styles.device} disabled={picker.connecting}
+                onClick={() => picker.select({ id: device.id })}>
+                <IconCast size={22} /><span><strong>{device.name}</strong><small>{device.model || 'Google Cast'} · {device.address}</small></span>
+              </button>
+            ))}
+          </div>
+        )}
+        {!picker.discovering && !picker.connecting && (
+          <button type="button" className={styles.stopBtn} onClick={() => {
+            dialogRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+            picker.refresh();
+          }}>Search again</button>
+        )}
         <form className={styles.manualAddress} onSubmit={(event) => { event.preventDefault(); if (address.trim()) picker.select({ address: address.trim() }); }}>
           <label htmlFor="flyx-cast-ip">TV not listed? Enter its IP address</label>
           <div><input id="flyx-cast-ip" value={address} onChange={(event) => setAddress(event.target.value)}

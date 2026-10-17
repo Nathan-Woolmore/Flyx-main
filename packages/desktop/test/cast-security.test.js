@@ -34,6 +34,13 @@ describe("Cast bridge validation", () => {
     expect(() => validateMedia({ ...media, contentType: "text/html" }, [origin])).toThrow();
     expect(() => validateMedia({ ...media, startTime: NaN }, [origin])).toThrow();
   });
+  it("allows the exact signed local route on the existing host, with no expanded origins or paths", () => {
+    const local = `${origin}/api/stream/local?id=11111111-1111-4111-8111-111111111111&rev=${"b".repeat(64)}&exp=${Math.floor(Date.now() / 1000) + 3600}&sig=${"a".repeat(43)}`;
+    expect(validateMedia({ ...media, url: local, startTime: 37 }, [origin])).toMatchObject({ media: { contentId: local }, startTime: 37 });
+    for (const bad of [local.replace("/local?", "/local/other?"), local.replace("/local?", "/local-source?"), local.replace("192.168.1.50", "192.168.1.51"), local.replace("sig=", "unsigned=")]) {
+      expect(() => validateMedia({ ...media, url: bad }, [origin])).toThrow();
+    }
+  });
   it("rejects arbitrary controls and invalid numeric values", () => {
     expect(validateCommand({ type: "seek", value: 42 })).toEqual({ type: "seek", value: 42 });
     for (const command of [{ type: "LAUNCH" }, { type: "volume", value: 2 }, { type: "seek", value: -1 }, { type: "mute", value: "false" }, { type: "seek", value: Infinity }]) {
@@ -41,3 +48,5 @@ describe("Cast bridge validation", () => {
     }
   });
 });
+
+it('accepts explicit paused staging without changing default autoplay or URL restrictions',()=>{expect(validateMedia(media,[origin]).autoplay).toBe(true);expect(validateMedia({...media,autoplay:false},[origin]).autoplay).toBe(false);expect(()=>validateMedia({...media,autoplay:'false'},[origin])).toThrow();});

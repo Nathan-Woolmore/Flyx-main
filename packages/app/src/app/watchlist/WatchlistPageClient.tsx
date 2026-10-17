@@ -108,7 +108,7 @@ export default function WatchlistPageClient() {
     const type: "movie" | "tv" = item.mediaType === "movie" ? "movie" : "tv";
     const entry: ProgressEntry | null = latestFor(item.contentId, type);
     if (!entry) return null;
-    const done = Boolean(entry.completed) || entry.completionPercentage >= 95;
+    const done = entry.completed===true || (entry.completionEvidence===undefined && entry.completionPercentage>=95);
     return {
       done,
       ep: episodeLabel(entry),

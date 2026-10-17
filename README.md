@@ -4,6 +4,12 @@ Flyx is a self-hosted app for browsing movies, TV shows, anime, manga, live TV, 
 
 The desktop app includes its own server. The CLI (command-line interface) runs the server from a terminal so you can use Flyx in a browser. Both need an internet connection for online catalogs and streams; source availability varies.
 
+## This fork: Mac bridge and iOS companion
+
+This branch includes the native Mac fixes and **Flyx Remote** in the separate [`ios/Flyx Remote`](ios/Flyx%20Remote/README.md) folder. The Mac package paths stay unchanged. See [architecture, secure pairing and distribution status](docs/flyx-remote.md) and [remote tests](tests/remote/README.md).
+
+These additions are currently clone-and-build source. This fork has no release installer containing them; the upstream downloads below are separate builds. The iOS project requires Xcode and your own device signing. No personal credentials or signed app binaries are included.
+
 ## Choose your setup
 
 | What you want                                      | Start here                                      | Requirements                                                            |

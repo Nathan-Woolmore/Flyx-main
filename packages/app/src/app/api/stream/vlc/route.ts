@@ -30,6 +30,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { resolveAnimeTitle } from "@/lib/anime-title";
 import { pipeline } from "@/lib/extraction";
 import type { StreamSource } from "@flyx/core";
 import { requestOrigin } from "@/lib/request-origin";
@@ -46,6 +47,11 @@ import {
 import { getSession } from "@/lib/auth/get-session";
 import { signProxyUrl } from "@/lib/security/proxy-sign";
 import { castOrigin } from "@/lib/lan-origin";
+import { findLocalDownloadSources, openLocalDownload } from "@/lib/downloads/local-files";
+import { LOCAL_STREAM_PATH, localStreamQuery } from "@/lib/downloads/local-identity";
+import { listJobs } from "@/lib/downloads/manager";
+import { getDownloadDir } from "@/lib/downloads/types";
+import { hasValidSignature } from "@/lib/security/proxy-sign";
 
 const CAST_LAN_SHARING_OFF = "Turn on LAN sharing in Settings to cast";
 
@@ -71,9 +77,10 @@ interface Resolved {
   source: StreamSource | { url: string; referer?: string; origin?: string; quality?: string };
   title: string;
   provider?: string;
+  sources?: StreamSource[];
 }
 
-async function resolve(request: NextRequest): Promise<Resolved> {
+async function resolve(request: NextRequest, admin: boolean): Promise<Resolved> {
   const { searchParams } = new URL(request.url);
 
   // ── Raw source (player hand-off) ────────────────────────────
@@ -82,6 +89,16 @@ async function resolve(request: NextRequest): Promise<Resolved> {
     const url = validateHandoffUrl(rawUrl);
     if (!url) {
       throw Object.assign(new Error("url must be a plain http(s) URL"), { status: 400 });
+    }
+    const parsed = new URL(url, requestOrigin(request));
+    if (parsed.pathname === LOCAL_STREAM_PATH) {
+      if (!admin) throw Object.assign(new Error("Local downloads require host administrator access"), { status: 403 });
+      const query = localStreamQuery(parsed.searchParams);
+      const jobs = listJobs();
+      const file = query ? await openLocalDownload(jobs.find((job) => job.id === query.id), jobs, getDownloadDir(), query.rev) : null;
+      if (!file) throw Object.assign(new Error("Local download unavailable"), { status: 404 });
+      await file.handle.close();
+      return { source: { url: `${LOCAL_STREAM_PATH}${parsed.search}` }, title: searchParams.get("title") || "Local download", provider: "local" };
     }
     return {
       source: {
@@ -104,6 +121,17 @@ async function resolve(request: NextRequest): Promise<Resolved> {
     throw Object.assign(new Error("Only video can be opened in VLC"), { status: 400 });
   }
 
+  if (admin && (!item.provider || item.provider === "local")) {
+    const local = await findLocalDownloadSources(listJobs(), getDownloadDir(), item);
+    const chosen = pickBestSource(local, item.quality);
+    if (chosen) return { source: chosen, sources: local, provider: "local", title: handoffTitle(item) };
+    if (searchParams.get("localOnly") === "1") throw Object.assign(new Error("No completed local source"), { status: 404 });
+    if (item.provider === "local") item.provider = undefined;
+  }
+
+  if (item.malId && (!item.title || /^(Anime|MAL ID|Title)\s+\d+$/i.test(item.title))) {
+    item.title = (await resolveAnimeTitle(item.malId)) ?? item.title;
+  }
   const result = await pipeline.extract(
     {
       tmdbId: item.tmdbId,
@@ -134,6 +162,7 @@ async function resolve(request: NextRequest): Promise<Resolved> {
 
   return {
     source,
+    sources: candidates,
     provider: result.provider,
     title: handoffTitle({
       title: item.title,
@@ -145,7 +174,8 @@ async function resolve(request: NextRequest): Promise<Resolved> {
 }
 
 export async function GET(request: NextRequest) {
-  if (!(await getSession())) {
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
@@ -165,7 +195,7 @@ export async function GET(request: NextRequest) {
 
   let resolved: Resolved;
   try {
-    resolved = await resolve(request);
+    resolved = await resolve(request, session.isAdmin);
   } catch (err) {
     const status = (err as { status?: number }).status ?? 500;
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status });
@@ -173,14 +203,24 @@ export async function GET(request: NextRequest) {
 
   const origin = lanOrigin ?? requestOrigin(request);
   const url = signedHostStreamUrl(origin, resolved.source);
+  if (resolved.provider === "local" && !hasValidSignature(url)) {
+    return NextResponse.json({ ok: false, error: "Could not prepare a signed local stream" }, { status: 503 });
+  }
 
   if (format === "json") {
     return NextResponse.json(
       {
         ok: true,
+        ...(searchParams.get("allSources") === "1" ? { sources: (resolved.sources ?? [resolved.source]).slice(0, 64).map((source) => ({
+          url: signedHostStreamUrl(origin, source), quality: source.quality,
+          provider: resolved.provider,
+          language: (source as StreamSource).language, type: (source as StreamSource).type,
+          contentType: (source as StreamSource).type === "hls" || /\.m3u8(?:[?#]|$)|\/uwu\//i.test(source.url) ? "application/x-mpegURL" : "video/mp4",
+        })) } : {}),
         url,
         title: resolved.title,
         quality: resolved.source.quality ?? null,
+        contentType: /\.m3u8(?:[?#]|$)|\/uwu\//i.test(resolved.source.url) ? "application/x-mpegURL" : "video/mp4",
         provider: resolved.provider ?? null,
         startTime,
       },

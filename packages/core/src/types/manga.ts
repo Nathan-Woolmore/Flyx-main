@@ -87,6 +87,8 @@ export interface ChapterData {
   publishedAt?: string;
   /** Language of this chapter translation. */
   language?: string;
+  /** Release edition, when the provider explicitly labels it. */
+  edition?: "official" | "community";
 }
 
 /** A single page image within a chapter. */

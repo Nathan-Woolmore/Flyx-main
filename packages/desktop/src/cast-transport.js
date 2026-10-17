@@ -229,11 +229,11 @@ class CastTransport extends EventEmitter {
     }
     this.silentVerified = true;
   }
-  async load(media, startTime) {
+  async load(media, startTime, autoplay = true) {
     // Never issue LOAD/autoplay before a receiver acknowledgement of mute
     // and zero volume. Re-check for each movie, including reconnects.
     await this.ensureSilent();
-    const response = await this.request(NS.media, { type: "LOAD", media, autoplay: true, currentTime: startTime }, this.transportId);
+    const response = await this.request(NS.media, { type: "LOAD", media, autoplay, currentTime: startTime }, this.transportId);
     if (!response.status?.length) throw new Error("The TV did not confirm loading the movie.");
     return response.status[0];
   }

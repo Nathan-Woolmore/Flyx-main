@@ -1,0 +1,36 @@
+name: Flyx Remote
+options:
+  bundleIdPrefix: local.flyx
+  deploymentTarget:
+    iOS: '18.0'
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    CURRENT_PROJECT_VERSION: '40'
+    MARKETING_VERSION: '1.0'
+    CODE_SIGN_STYLE: Automatic
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_CFBundleDisplayName: Flyx Remote
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to your paired Mac to browse Flyx and control playback and downloads.
+    TARGETED_DEVICE_FAMILY: '1,2'
+targets:
+  Flyx Remote:
+    type: application
+    platform: iOS
+    sources: [App]
+    info:
+      path: Config/Info.plist
+      properties:
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.flyx.remote
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+schemes:
+  Flyx Remote:
+    build:
+      targets:
+        Flyx Remote: all

@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {loadRemoteConfiguration} from '../../packages/desktop/src/remote/configuration.mjs';
+function fixture(){const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'flyx-remote-config-'));const folder=path.join(dataDir,'remote');fs.mkdirSync(folder,{mode:0o700});const certFile=path.join(folder,'cert.pem'),keyFile=path.join(folder,'key.pem'),file=path.join(folder,'config.json');fs.writeFileSync(certFile,'SYNTHETIC CERT',{mode:0o600});fs.writeFileSync(keyFile,'SYNTHETIC KEY',{mode:0o600});const value={host:'synthetic.local',bindAddress:'192.168.1.7',port:3892,certFile,keyFile};const save=()=>fs.writeFileSync(file,JSON.stringify(value),{mode:0o600});save();return{dataDir,folder,keyFile,file,value,save,load:()=>loadRemoteConfiguration({dataDir,addresses:['192.168.1.7'],env:{}}),cleanup:()=>fs.rmSync(dataDir,{recursive:true,force:true})};}
+test('defaults off, persists explicit enable and disable across fresh loads without any launch environment',()=>{const f=fixture();try{assert.equal(f.load().enabled,false);f.load().persistEnabled(true);assert.equal(f.load().enabled,true);assert.equal(f.load().endpoint,'https://synthetic.local:3892');f.load().persistEnabled(false);assert.equal(f.load().enabled,false);assert.equal(fs.statSync(f.file).mode&0o077,0);}finally{f.cleanup();}});
+test('rejects wildcard/public or stale LAN bindings and insecure local file permissions',()=>{const f=fixture();try{for(const address of ['0.0.0.0','8.8.8.8','192.168.1.8']){f.value.bindAddress=address;f.save();assert.throws(f.load);}f.value.bindAddress='192.168.1.7';f.save();fs.chmodSync(f.keyFile,0o644);assert.throws(f.load);}finally{f.cleanup();}});
+test('rejects key symlinks/escaping files and an untrusted configuration directory',()=>{const f=fixture();try{fs.unlinkSync(f.keyFile);fs.symlinkSync('/etc/hosts',f.keyFile);assert.throws(f.load);fs.unlinkSync(f.keyFile);fs.writeFileSync(f.keyFile,'SYNTHETIC',{mode:0o600});fs.chmodSync(f.folder,0o755);assert.throws(f.load);}finally{f.cleanup();}});

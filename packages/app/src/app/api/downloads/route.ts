@@ -29,24 +29,36 @@ function validateItems(items: unknown): DownloadItemInput[] {
 
     if (it.kind === "video") {
       const tmdbId = Number(it.tmdbId);
-      const malId = it.malId ? Number(it.malId) : undefined;
-      if (!Number.isFinite(tmdbId)) {
-        throw new Error(`items[${i}] is missing a valid tmdbId`);
-      }
-      // Anime requests route by malId and may carry tmdbId=0.
-      if (tmdbId <= 0 && !malId) {
-        throw new Error(`items[${i}] is missing a valid tmdbId`);
+      const malId = it.malId != null ? Number(it.malId) : undefined;
+      if (
+        !Number.isSafeInteger(tmdbId) ||
+        tmdbId < 0 ||
+        (malId !== undefined && (!Number.isSafeInteger(malId) || malId <= 0)) ||
+        (tmdbId === 0 && !malId)
+      ) {
+        throw new Error(`items[${i}] is missing a valid tmdbId/malId`);
       }
       const mediaType = it.mediaType === "tv" ? "tv" : "movie";
-      if (mediaType === "tv" && !it.season && !it.episode) {
-        throw new Error(`items[${i}] is missing season/episode`);
+      if (it.mediaType !== undefined && it.mediaType !== "tv" && it.mediaType !== "movie") {
+        throw new Error(`items[${i}] has an invalid mediaType`);
+      }
+      const season = it.season != null ? Number(it.season) : undefined;
+      const episode = it.episode != null ? Number(it.episode) : undefined;
+      if (
+        mediaType === "tv" &&
+        (!Number.isSafeInteger(season) ||
+          season! < 0 ||
+          !Number.isSafeInteger(episode) ||
+          episode! <= 0)
+      ) {
+        throw new Error(`items[${i}] is missing a valid season/episode`);
       }
       return {
         kind: "video",
         tmdbId,
         mediaType,
-        season: it.season ? Number(it.season) : undefined,
-        episode: it.episode ? Number(it.episode) : undefined,
+        season: mediaType === "tv" ? season : undefined,
+        episode: mediaType === "tv" ? episode : undefined,
         malId,
         title: typeof it.title === "string" ? it.title : undefined,
         provider: typeof it.provider === "string" ? it.provider : undefined,
@@ -58,6 +70,25 @@ function validateItems(items: unknown): DownloadItemInput[] {
 
     if (it.kind === "manga") {
       const mangaId = String(it.mangaId || "");
+      if (it.collection !== undefined) {
+        const scope = it.collection as Record<string, unknown> | null;
+        if (
+          !scope ||
+          typeof scope !== "object" ||
+          typeof scope.language !== "string" ||
+          !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/i.test(scope.language) ||
+          (scope.edition !== "official" && scope.edition !== "community") ||
+          !/^[a-z0-9][a-z0-9._-]{0,299}$/i.test(mangaId)
+        )
+          throw new Error(`items[${i}] has an invalid collection selection`);
+        return {
+          kind: "manga",
+          mangaId,
+          chapter: 0,
+          title: typeof it.title === "string" ? it.title : undefined,
+          collection: { language: scope.language, edition: scope.edition },
+        } as DownloadItemInput;
+      }
       const chapter = Number(it.chapter);
       if (!mangaId || !Number.isFinite(chapter) || chapter <= 0) {
         throw new Error(`items[${i}] is missing a valid mangaId/chapter`);
@@ -79,7 +110,10 @@ export async function GET() {
   if (!session?.isAdmin) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
-  return NextResponse.json({ ok: true, jobs: listJobs() });
+  return NextResponse.json({
+    ok: true,
+    jobs: listJobs().map(({ collectionPlan: _plan, ...visible }) => visible),
+  });
 }
 
 export async function POST(request: NextRequest) {

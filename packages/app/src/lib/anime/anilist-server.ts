@@ -49,8 +49,7 @@ function mapMedia(m: any) {
         .trim()
     : null;
 
-  const score =
-    m.averageScore != null ? Math.round((m.averageScore / 10) * 10) / 10 : null;
+  const score = m.averageScore != null ? Math.round((m.averageScore / 10) * 10) / 10 : null;
 
   const formatMap: Record<string, string> = {
     TV: "TV",
@@ -78,7 +77,8 @@ function mapMedia(m: any) {
     synopsis,
     score,
     scored_by: m.popularity ?? null,
-    year: m.seasonYear ?? null,
+    year: m.startDate?.year ?? m.seasonYear ?? null,
+    members: m.popularity ?? 0,
     season: m.season ? String(m.season).toLowerCase() : null,
     type: formatMap[m.format] || m.format || null,
     episodes: m.episodes ?? null,
@@ -96,13 +96,11 @@ function mapMedia(m: any) {
     images: {
       jpg: {
         image_url: m.coverImage?.large || m.coverImage?.medium || "",
-        large_image_url:
-          m.coverImage?.extraLarge || m.coverImage?.large || "",
+        large_image_url: m.coverImage?.extraLarge || m.coverImage?.large || "",
       },
       webp: {
         image_url: m.coverImage?.large || "",
-        large_image_url:
-          m.coverImage?.extraLarge || m.coverImage?.large || "",
+        large_image_url: m.coverImage?.extraLarge || m.coverImage?.large || "",
       },
     },
     trailer: m.trailer?.id
@@ -114,7 +112,7 @@ function mapMedia(m: any) {
       : undefined,
     aired: {
       from: m.startDate?.year
-        ? `${m.startDate.year}-${String(m.startDate.month || 1).padStart(2, "0")}-01`
+        ? `${m.startDate.year}-${String(m.startDate.month || 1).padStart(2, "0")}-${String(m.startDate.day || 1).padStart(2, "0")}`
         : undefined,
       string: m.seasonYear ? String(m.seasonYear) : undefined,
     },
@@ -144,16 +142,18 @@ const RELATION_LABEL: Record<string, string> = {
   CONTAINS: "Contains",
 };
 
-function mapRelations(relations: any): Array<{
-  relation: string;
-  entry: Array<{
-    mal_id: number;
-    type: string;
-    name: string;
-    url?: string;
-    images?: any;
-  }>;
-}> | undefined {
+function mapRelations(relations: any):
+  | Array<{
+      relation: string;
+      entry: Array<{
+        mal_id: number;
+        type: string;
+        name: string;
+        url?: string;
+        images?: any;
+      }>;
+    }>
+  | undefined {
   const edges = relations?.edges;
   if (!Array.isArray(edges) || edges.length === 0) return undefined;
 
@@ -176,26 +176,19 @@ function mapRelations(relations: any): Array<{
     if (node.type && node.type !== "ANIME") continue;
     const malId = node.idMal || node.id;
     if (!malId) continue;
-    const label =
-      RELATION_LABEL[edge.relationType] || edge.relationType || "Related";
+    const label = RELATION_LABEL[edge.relationType] || edge.relationType || "Related";
     const entry = {
       mal_id: malId,
       type: "anime",
-      name:
-        node.title?.english ||
-        node.title?.romaji ||
-        node.title?.native ||
-        "Untitled",
+      name: node.title?.english || node.title?.romaji || node.title?.native || "Untitled",
       images: {
         jpg: {
           image_url: node.coverImage?.large || node.coverImage?.medium || "",
-          large_image_url:
-            node.coverImage?.extraLarge || node.coverImage?.large || "",
+          large_image_url: node.coverImage?.extraLarge || node.coverImage?.large || "",
         },
         webp: {
           image_url: node.coverImage?.large || "",
-          large_image_url:
-            node.coverImage?.extraLarge || node.coverImage?.large || "",
+          large_image_url: node.coverImage?.extraLarge || node.coverImage?.large || "",
         },
       },
     };
@@ -271,18 +264,26 @@ export async function anilistPage(
   extra: Record<string, unknown> = {},
 ) {
   const data = await anilistQuery<{
-    Page: { media: any[] };
+    Page: {
+      media: any[];
+      pageInfo: { hasNextPage: boolean; currentPage: number; lastPage?: number };
+    };
   }>(
-    `query ($page: Int, $perPage: Int, $sort: [MediaSort], $type: MediaType, $status: MediaStatus, $format: MediaFormat, $genre: String, $search: String, $isAdult: Boolean) {
+    `query ($page: Int, $perPage: Int, $sort: [MediaSort], $type: MediaType, $status: MediaStatus, $format: MediaFormat, $genre: String, $genres: [String], $search: String, $isAdult: Boolean, $minScore: Int, $startAfter: FuzzyDateInt, $startBefore: FuzzyDateInt) {
       Page(page: $page, perPage: $perPage) {
+        pageInfo { hasNextPage currentPage lastPage }
         media(
           type: $type
           sort: $sort
           status: $status
           format: $format
           genre: $genre
+          genre_in: $genres
           search: $search
           isAdult: $isAdult
+          averageScore_greater: $minScore
+          startDate_greater: $startAfter
+          startDate_lesser: $startBefore
         ) {
           ${MEDIA_FIELDS}
         }
@@ -290,18 +291,27 @@ export async function anilistPage(
     }`,
     {
       page: 1,
-      perPage: Math.min(perPage, 50),
+      perPage: Math.min(Math.max(perPage, 1), 50),
       sort,
       type: "ANIME",
       isAdult: false,
       ...extra,
     },
   );
-
-  const media = data?.Page?.media || [];
+  // A failed provider response must not masquerade as a successful empty search.
+  if (
+    !data?.Page ||
+    !Array.isArray(data.Page.media) ||
+    typeof data.Page.pageInfo?.hasNextPage !== "boolean"
+  )
+    return null;
   return {
-    data: media.map(mapMedia).filter(Boolean),
-    pagination: { has_next_page: false },
+    data: data.Page.media.map(mapMedia).filter(Boolean),
+    pagination: {
+      has_next_page: data.Page.pageInfo?.hasNextPage === true,
+      current_page: data.Page.pageInfo?.currentPage ?? Number(extra.page || 1),
+      last_visible_page: data.Page.pageInfo?.lastPage,
+    },
     source: "anilist",
   };
 }
@@ -352,6 +362,7 @@ export async function anilistFromJikanPath(pathWithQuery: string) {
   const url = new URL(pathWithQuery, "https://jikan.local");
   const pathname = url.pathname;
   const limit = Number(url.searchParams.get("limit") || "16") || 16;
+  const page = Math.max(1, Math.trunc(Number(url.searchParams.get("page")) || 1));
   const q = url.searchParams.get("q") || "";
   const filter = url.searchParams.get("filter") || "";
   const type = url.searchParams.get("type") || "";
@@ -369,16 +380,9 @@ export async function anilistFromJikanPath(pathWithQuery: string) {
     return anilistRecommendations(Number(recMatch[1]));
   }
 
-  // Search
-  if (pathname === "/anime" && q) {
-    return anilistPage(["SEARCH_MATCH", "POPULARITY_DESC"], limit, {
-      search: q,
-    });
-  }
-
-  // Genre browse (Jikan genre ids ≠ AniList names — map common ones)
-  if (pathname === "/anime" && genres) {
-    const GENRE_MAP: Record<string, string> = {
+  // One path handles blank browse and combined text/genre/rating/date filters.
+  if (pathname === "/anime") {
+    const genreNames: Record<string, string> = {
       "1": "Action",
       "2": "Adventure",
       "4": "Comedy",
@@ -391,35 +395,68 @@ export async function anilistFromJikanPath(pathWithQuery: string) {
       "36": "Slice of Life",
       "30": "Sports",
       "37": "Supernatural",
-      "41": "Suspense",
+      "41": "Thriller",
     };
-    const genreName = GENRE_MAP[genres.split(",")[0]] || undefined;
-    return anilistPage(["POPULARITY_DESC"], limit, {
-      genre: genreName,
-    });
+    const extra: Record<string, unknown> = { page };
+    if (q) extra.search = q;
+    if (genres)
+      extra.genres = genres
+        .split(",")
+        .map((id) => genreNames[id])
+        .filter(Boolean);
+    const score = Number(url.searchParams.get("min_score"));
+    // Jikan is 0–10; AniList is an integer 0–100 with an exclusive greater-than filter.
+    if (Number.isFinite(score) && score > 0)
+      extra.minScore = Math.ceil(Math.min(score, 10) * 10) - 1;
+    const start = url.searchParams.get("start_date");
+    const end = url.searchParams.get("end_date");
+    const dateBound = (date: string, delta: number) => {
+      const day = new Date(`${date}T00:00:00Z`);
+      if (!Number.isFinite(day.getTime())) return undefined;
+      day.setUTCDate(day.getUTCDate() + delta);
+      return day.getUTCFullYear() * 10000 + (day.getUTCMonth() + 1) * 100 + day.getUTCDate();
+    };
+    if (start) extra.startAfter = dateBound(start, -1);
+    if (end) extra.startBefore = dateBound(end, 1);
+    const order = url.searchParams.get("order_by");
+    const ascending = url.searchParams.get("sort") === "asc";
+    const sort =
+      order === "score"
+        ? [ascending ? "SCORE" : "SCORE_DESC"]
+        : order === "start_date"
+          ? [ascending ? "START_DATE" : "START_DATE_DESC"]
+          // Jikan popularity is an ordinal rank (1 is best); AniList is a
+          // membership count. Rank ascending therefore means count descending.
+          : order === "popularity"
+            ? [ascending ? "POPULARITY_DESC" : "POPULARITY"]
+          : q && !order
+            ? ["SEARCH_MATCH", "POPULARITY_DESC"]
+            : [ascending ? "POPULARITY" : "POPULARITY_DESC"];
+    return anilistPage(sort, limit, extra);
   }
 
   // Seasons now
   if (pathname === "/seasons/now") {
-    return anilistPage(["POPULARITY_DESC"], limit, { status: "RELEASING" });
+    return anilistPage(["POPULARITY_DESC"], limit, { status: "RELEASING", page });
   }
 
   // Upcoming
   if (pathname === "/seasons/upcoming") {
     return anilistPage(["POPULARITY_DESC"], limit, {
       status: "NOT_YET_RELEASED",
+      page,
     });
   }
 
   // Top anime
   if (pathname === "/top/anime") {
     if (type === "movie") {
-      return anilistPage(["SCORE_DESC"], limit, { format: "MOVIE" });
+      return anilistPage(["SCORE_DESC"], limit, { format: "MOVIE", page });
     }
     if (filter === "bypopularity") {
-      return anilistPage(["POPULARITY_DESC"], limit);
+      return anilistPage(["POPULARITY_DESC"], limit, { page });
     }
-    return anilistPage(["SCORE_DESC"], limit);
+    return anilistPage(["SCORE_DESC"], limit, { page });
   }
 
   return null;

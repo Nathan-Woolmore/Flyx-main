@@ -5,6 +5,7 @@ import SyncSettings from "@/components/settings/SyncSettings";
 import ProviderSettings from "@/components/settings/ProviderSettings";
 import NetworkSettings from "@/components/settings/NetworkSettings";
 import SecuritySettings from "@/components/settings/SecuritySettings";
+import RemotePairingSettings from "@/components/settings/RemotePairingSettings";
 import RemoteAccessSettings from "@/components/settings/RemoteAccessSettings";
 import EnvSettings from "@/components/settings/EnvSettings";
 import UpdatesSettings from "@/components/settings/UpdatesSettings";
@@ -187,6 +188,7 @@ export default function SettingsPageClient() {
             <div className={styles.settingsStack}>
               <SecuritySettings />
               <RemoteAccessSettings />
+              <RemotePairingSettings />
             </div>
           )}
           {activeTab === "environment" && <EnvSettings />}

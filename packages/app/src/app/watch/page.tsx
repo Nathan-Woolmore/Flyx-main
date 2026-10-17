@@ -1,5 +1,7 @@
 "use client";
 
+import { registerRemoteCastSource } from "@/lib/remote/renderer.mjs";
+import { resolveCastStreamUrl } from "@/lib/external-player-client";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -54,9 +56,13 @@ import {
   playlistFilename,
 } from "@/lib/external-player";
 import { usePlaybackRecovery } from "@/components/player/usePlaybackRecovery";
+import { localIdentityKey } from "@/lib/downloads/local-identity";
 import { PositionMemory } from "@/components/player/position-memory";
 import { IconVlc } from "@/components/player/VlcButton";
 import {
+  type ProgressIdentity,
+  beginProgressSession,
+  sameItem,
   getWatchProgress,
   resumeSeconds,
   updateWatchProgress,
@@ -321,9 +327,14 @@ function WatchInner() {
   const router = useRouter();
   const tmdbId = searchParams.get("tmdbId") ?? "";
   const malId = searchParams.get("malId") ?? "";
+  const requestedAudio = searchParams.get("language");
+  const remotePrepare=searchParams.get("remotePrepare")==="1";
+  const remoteTransfer=searchParams.get("remoteTransfer")??"";
   const isAnime = Boolean(malId) || searchParams.get("mediaType") === "anime";
   const mediaType = (
-    searchParams.get("mediaType") === "tv" ? "tv" : "movie"
+    searchParams.get("mediaType") === "tv" ||
+    (malId && searchParams.get("mediaType") !== "movie" && searchParams.has("episode"))
+      ? "tv" : "movie"
   ) as "movie" | "tv";
   /** Currently playing season/episode (drives extract + playback). */
   const [season, setSeason] = useState(searchParams.get("season") ?? "1");
@@ -335,6 +346,16 @@ function WatchInner() {
   const [browseSeason, setBrowseSeason] = useState(
     searchParams.get("season") ?? "1",
   );
+
+  useEffect(() => {
+    const select = (event: Event) => {
+      const command = (event as CustomEvent).detail;
+      if (!command || String(command.contentID) !== (malId || tmdbId)) return;
+      if (command.kind !== "movie") { setSeason(String(command.season ?? 1)); setEpisode(String(command.episode)); setBrowseSeason(String(command.season ?? 1)); }
+    };
+    window.addEventListener("flyx:remote-select-episode", select);
+    return () => window.removeEventListener("flyx:remote-select-episode", select);
+  }, [malId, tmdbId]);
 
   const { addItem, removeItem, isInWatchlist } = useWatchlist();
   const [details, setDetails] = useState<Details | null>(null);
@@ -365,15 +386,16 @@ function WatchInner() {
     {},
   );
   const [loadingProvider, setLoadingProvider] = useState(false);
-  /** Anime Sub / Dub preference (persisted). Always starts as "sub" to
-   *  match SSR — localStorage preference is synced in a useEffect below. */
-  const [audioMode, setAudioMode] = useState<AnimeAudioMode>("sub");
+  /** An explicit downloaded audio track wins for this link; otherwise hydrate the saved preference. */
+  const [audioMode, setAudioMode] = useState<AnimeAudioMode>(
+    requestedAudio === "dub" ? "dub" : "sub",
+  );
   const resumeAfterSwitchRef = useRef<number | null>(null);
   /** Last good position of what's playing — automatic fail-over resumes here,
    *  since by the time it runs the dead source has already reset currentTime. */
   const positionMemoryRef = useRef(new PositionMemory());
   const contentKeyRef = useRef("");
-  contentKeyRef.current = `${tmdbId}:${mediaType}:${season}:${episode}`;
+  contentKeyRef.current = localIdentityKey({ tmdbId: Number(tmdbId), malId: malId ? Number(malId) : undefined, mediaType, season: Number(season), episode: Number(episode) });
   /** Call before any automatic source retry / fail-over so the next source
    *  resumes instead of starting over. `at` = a position known to the caller. */
   const rememberFailoverResume = useCallback((at?: number) => {
@@ -391,6 +413,7 @@ function WatchInner() {
   const progressIdentityRef = useRef<() => {
     contentId: string;
     contentType: "movie" | "tv";
+    malId?: number;
     seasonNumber?: number;
     episodeNumber?: number;
   }>(() => ({ contentId: "", contentType: "movie" }));
@@ -422,12 +445,13 @@ function WatchInner() {
     showToast: ((_msg: string) => {}) as (msg: string) => void,
   });
 
-  // Sync persisted audio preference after hydration to avoid SSR mismatch.
-  // The state always starts as "sub" so server & initial client render agree.
+  // A download Play link chooses its recorded track without rewriting the global preference.
   useEffect(() => {
-    const pref = getProviderSettings().animeAudioPreference;
-    if (pref === "dub") setAudioMode("dub");
-  }, []);
+    const pref = requestedAudio === "sub" || requestedAudio === "dub"
+      ? requestedAudio
+      : getProviderSettings().animeAudioPreference;
+    if (pref === "sub" || pref === "dub") setAudioMode(pref);
+  }, [requestedAudio]);
 
   // Player UI state
   const [playing, setPlaying] = useState(false);
@@ -444,7 +468,7 @@ function WatchInner() {
   const [mp4StartupHint, setMp4StartupHint] = useState<string | null>(null);
   const startupNotice = getStartupNotice({
     status, hasSource: !!activeUrl, hasStarted, playing,
-    pauseOnStartup: playbackPolicyReady && silentPlayback,
+    pauseOnStartup: remotePrepare || (playbackPolicyReady && silentPlayback),
   });
   const [chromeVisible, setChromeVisible] = useState(true);
   const [seeking, setSeeking] = useState(false);
@@ -1040,6 +1064,8 @@ function WatchInner() {
     return () => clearTimeout(t);
   }, [status]);
 
+
+
   const handleCastClick = useCallback(async () => {
     bumpChrome();
     if (cast.isCasting || cast.isConnected) {
@@ -1218,7 +1244,7 @@ function WatchInner() {
   }, [malId]);
 
   const catalogProviders = useMemo(
-    () => (isAnime || malId ? ANIME_PROVIDERS : VOD_PROVIDERS),
+    () => [{ id: "local", label: "Local download", blurb: "Saved on this computer", kind: (isAnime || malId ? "anime" : "vod") as ProviderKind }, ...(isAnime || malId ? ANIME_PROVIDERS : VOD_PROVIDERS)],
     [isAnime, malId],
   );
 
@@ -1239,7 +1265,7 @@ function WatchInner() {
       try {
         // When anime title is still generic ("Anime 57658"), AnimeX can't find the show.
         // Wait briefly for Jikan to resolve the real title before making the API call.
-        if (malId && providerId && /^Anime \d+$/i.test(titleRef.current || '')) {
+        if (malId && providerId && providerId !== "local" && /^Anime \d+$/i.test(titleRef.current || '')) {
           for (let i = 0; i < 15; i++) {
             await new Promise((r) => setTimeout(r, 200));
             if (titleRef.current && !/^Anime \d+$/i.test(titleRef.current)) break;
@@ -1247,7 +1273,12 @@ function WatchInner() {
         }
 
         let res: Response;
-        if (malId) {
+        if (providerId === "local") {
+          const params = new URLSearchParams({ tmdbId: tmdbId || "0", mediaType });
+          if (malId) params.set("malId", malId);
+          if (mediaType === "tv") { params.set("season", season); params.set("episode", episode); }
+          res = await fetch(`/api/stream/local-source?${params}`, { signal: AbortSignal.timeout(2000), cache: "no-store" });
+        } else if (malId) {
           const params = new URLSearchParams({ malId });
           if (episode) params.set("episode", episode);
           if (providerId) params.set("provider", providerId);
@@ -1393,7 +1424,7 @@ function WatchInner() {
     (async () => {
       // Use auto mode to combine sources from multiple providers.
       // Individual provider probes fill the source cache for direct switching.
-      const tryOrder = catalogProviders.map((p) => p.id);
+      const tryOrder = catalogProviders.filter((p) => p.id !== "local").map((p) => p.id);
 
       // Race individual probes + auto mode. Start playback on the FIRST
       // success — do NOT wait for every provider (that alone can add 10–20s).
@@ -1401,12 +1432,6 @@ function WatchInner() {
         id: string | null;
         r: Awaited<ReturnType<typeof fetchFromProvider>>;
       };
-      const probePromises: Promise<ProbeOutcome>[] = tryOrder.map((id) =>
-        fetchFromProvider(id).then((r) => ({ id, r })),
-      );
-      const autoPromise: Promise<ProbeOutcome> = fetchFromProvider(null).then(
-        (r) => ({ id: r.provider || "auto", r }),
-      );
 
       let playbackStarted = false;
       const startPlayback = (pid: string, list: StreamSource[]) => {
@@ -1417,7 +1442,7 @@ function WatchInner() {
           pickBestSource(list, audioModeRef.current, animeCtx) || list[0]!;
         console.log("[Watch] ✅ READY (first success):", JSON.stringify({
           pid,
-          url: best.url?.substring(0, 80),
+          url: pid === "local" ? "Local download" : best.url?.substring(0, 80),
           quality: best.quality,
           type: best.type,
           lang: best.language,
@@ -1432,6 +1457,20 @@ function WatchInner() {
         setActiveUrl(best.url);
         setStatus("ready");
       };
+
+      // Prefer an exact completed local download before any online provider can win.
+      const local = await fetchFromProvider("local");
+      if (cancelled || gen !== probeGenRef.current) return;
+      applyProbeResult("local", local);
+      if (local.ok && pickBestSource(local.list, audioModeRef.current, Boolean(malId))) startPlayback("local", local.list);
+
+      const probePromises: Promise<ProbeOutcome>[] = tryOrder.map((id) =>
+        fetchFromProvider(id).then((r) => ({ id, r })),
+      );
+      const autoPromise: Promise<ProbeOutcome> = fetchFromProvider(null).then(
+        (r) => ({ id: r.provider || "auto", r }),
+      );
+
 
       // Settle probes as they finish (parallel), updating chips + starting play ASAP
       const allOutcomes = await Promise.all(
@@ -1492,6 +1531,9 @@ function WatchInner() {
 
     return () => {
       cancelled = true;
+      // Numeric cancellation counter: invalidate asynchronous fallback work after unmount.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      if (probeGenRef.current === gen) probeGenRef.current++;
     };
   }, [
     tmdbId,
@@ -1593,7 +1635,7 @@ function WatchInner() {
     (src: StreamSource) => {
       failedSourcesRef.current.delete(src.url);
       consecutiveFailuresRef.current = 0;
-      explicitMp4ChoiceRef.current = { url: src.url, label: String(src.quality || "selected") };
+      explicitMp4ChoiceRef.current = src.provider === "local" ? null : { url: src.url, label: String(src.quality || "selected") };
       if (src.url === activeUrl) {
         if (status === "error") { setStatus("ready"); setReloadKey((key) => key + 1); }
         setShowSources(false);
@@ -1623,6 +1665,23 @@ function WatchInner() {
     },
     [activeUrl, status, showToast, sheetProvider, playbackProvider, isAnime],
   );
+
+  useEffect(() => {
+    if (!activeUrl) return;
+    const inventory=Array.from(new Map(Object.values(sourcesCache).flat().map(src=>[src.url,src])).values());
+    const indexed=inventory.map(src=>({key:crypto.randomUUID(),src}));
+    return registerRemoteCastSource({
+      sourceKey:activeUrl,
+      describe:()=>indexed.map(({key,src})=>({key,provider:src.provider??"Source",quality:src.quality??"Auto",language:detectAudioLang(src)??"",format:src.url.includes(".m3u8")?"hls":"mp4",selected:src.url===activeUrl})),
+      select:(key:string)=>{const entry=indexed.find(row=>row.key===key);if(!entry)throw new Error("Source expired");selectSource(entry.src);return entry.src.url;},
+      contentType: activeUrl.includes(".m3u8") || /\/uwu\//i.test(activeUrl) ? "application/x-mpegURL" : "video/mp4",
+      preparePhone: async () => ({url:await resolveHostStreamUrl({source:currentRawSource ?? {url:activeUrl}}),contentType:activeUrl.includes(".m3u8") || /\/uwu\//i.test(activeUrl) ? "application/x-mpegURL" : "video/mp4",title}),
+      prepare: async () => ({url: await resolveCastStreamUrl(currentRawSource ?? {url:activeUrl}),title,
+        contentType: activeUrl.includes(".m3u8") || /\/uwu\//i.test(activeUrl) ? "application/x-mpegURL" : "video/mp4",
+        startTime: videoRef.current?.currentTime || 0}),
+      pause: () => videoRef.current?.pause(),
+    });
+  }, [activeUrl,currentRawSource,title,sourcesCache,selectSource]);
 
   /**
    * Switch Sub / Dub for anime — filters source list and swaps to best
@@ -1706,6 +1765,32 @@ function WatchInner() {
     return { sub, dub, untagged };
   }, [sheetSourcesAll, isAnime]);
 
+  const localFallbackPendingRef = useRef<number | null>(null);
+  const localFallbackRef = useRef<() => void>(() => {});
+  localFallbackRef.current = () => {
+    const generation = probeGenRef.current;
+    if (localFallbackPendingRef.current === generation) return;
+    localFallbackPendingRef.current = generation;
+    const key = contentKeyRef.current;
+    explicitMp4ChoiceRef.current = null;
+    setStatus("loading");
+    setProviderState((previous) => ({ ...previous, local: "empty" }));
+    setSourcesCache((previous) => { const next = { ...previous }; delete next.local; return next; });
+    showToast("Local download unavailable — trying online…");
+    void fetchFromProvider(null).then((result) => {
+      if (generation !== probeGenRef.current || key !== contentKeyRef.current || trayHiddenRef.current) return;
+      const provider = result.provider || catalogProviders.find((item) => item.id !== "local")?.id || "auto";
+      applyProbeResult(provider, result);
+      const source = pickBestSource(result.list, audioModeRef.current, Boolean(malId), failedSourcesRef.current);
+      if (result.ok && source) {
+        setPlaybackProvider(provider); setSheetProvider(provider);
+        setActiveUrl(source.url); setStatus("ready"); setErrorMsg("");
+      } else {
+        setStatus("error"); setErrorMsg("The local download is unavailable and no online source could be loaded. Reconnect the drive or try again.");
+      }
+    }).finally(() => { if (localFallbackPendingRef.current === generation) localFallbackPendingRef.current = null; });
+  };
+
   // Keep recovery context fresh without re-binding the player
   useEffect(() => {
     playbackCtxRef.current = {
@@ -1734,12 +1819,16 @@ function WatchInner() {
   useEffect(() => {
     const video = videoRef.current;
     const url = activeUrl;
-    console.log("[Watch] 🎬 HLS effect:", JSON.stringify({ hasVideo: !!video, hasUrl: !!url, status, urlPreview: url?.substring(0, 80) }));
+    console.log("[Watch] 🎬 HLS effect:", JSON.stringify({ hasVideo: !!video, hasUrl: !!url, status, urlPreview: url?.startsWith("/api/stream/local?") ? "Local download" : url?.substring(0, 80) }));
     if (!video || !url || status !== "ready") {
       console.log("[Watch] ⏭️ HLS effect SKIPPED:", JSON.stringify({ missing: !video ? "video" : !url ? "url" : "status_not_ready" }));
       return;
     }
 
+    const remoteIdentity = JSON.stringify([isAnime ? "anime" : mediaType, malId || tmdbId, season, episode]);
+    delete video.dataset.flyxRemoteReady;
+    const markRemoteReady = () => { video.dataset.flyxRemoteReady = remoteIdentity; };
+    video.addEventListener("loadedmetadata", markRemoteReady);
     // Teardown hook registered by whichever playback branch runs (native
     // HLS watchdog or MP4 timeouts). It MUST be called on source switch —
     // otherwise a stale stall timer fires against the next source while it
@@ -1791,7 +1880,7 @@ function WatchInner() {
         url.includes("application/vnd.apple.mpegurl");
 
       loadStartRef.current = performance.now();
-      console.log("[Watch] ⏱️ Loading source:", JSON.stringify({ isHls, isUwu, type: isHls ? "hls" : "mp4", urlLen: url.length, urlFull: url }));
+      console.log("[Watch] ⏱️ Loading source:", JSON.stringify({ isHls, isUwu, type: isHls ? "hls" : "mp4", urlLen: url.length, urlFull: currentSource?.provider === "local" ? "Local download" : url }));
 
       const applyResumeAndPlay = () => {
         if (resumeCleanup) {
@@ -1862,6 +1951,12 @@ function WatchInner() {
         // Window hidden to tray: the source is torn down on hide and
         // restored on show — never churn through sources in the background.
         if (trayHiddenRef.current) return;
+        if (currentSource?.provider === "local" || url.startsWith("/api/stream/local?")) {
+          rememberFailoverResume();
+          failedSourcesRef.current.add(url);
+          localFallbackRef.current();
+          return;
+        }
         if (explicitMp4ChoiceRef.current?.url === url) {
           rememberFailoverResume();
           setStatus("error");
@@ -2235,6 +2330,8 @@ function WatchInner() {
     })();
 
     return () => {
+      video.removeEventListener("loadedmetadata", markRemoteReady);
+      delete video.dataset.flyxRemoteReady;
       // Disarm the previous source's watchdog timers/listeners. In-flight
       // loads still survive re-renders via refs — only the stale callbacks
       // are removed.
@@ -2716,30 +2813,43 @@ function WatchInner() {
   ]);
 
   // ── Watch progress (exact-second resume) ───────────────────────
-  const progressContentId = tmdbId || malId;
+  const progressContentId = malId || tmdbId;
+  const progressSessionRef=useRef<{key:string;context:ReturnType<typeof beginProgressSession>;sequence:number}|null>(null);
+  const explicitStartOverRef=useRef(false);explicitStartOverRef.current=searchParams.get("remoteStartOver")==="1";
+  const progressSessionKey=JSON.stringify([malId?"mal":"tmdb",progressContentId,mediaType,season,episode,searchParams.get("remotePlayID")]);
+  if(progressSessionRef.current?.key!==progressSessionKey){progressSessionRef.current={key:progressSessionKey,context:beginProgressSession({contentId:progressContentId??"",contentType:mediaType,malId:malId?Number(malId):undefined}),sequence:0};}
   progressIdentityRef.current = () => ({
     contentId: progressContentId,
-    contentType: malId || mediaType === "tv" ? "tv" : "movie",
-    seasonNumber: malId ? 1 : mediaType === "tv" ? Number(season) || 1 : undefined,
-    episodeNumber: malId || mediaType === "tv" ? Number(episode) || 1 : undefined,
+    contentType: mediaType,
+    malId: malId ? Number(malId) : undefined,
+    seasonNumber: mediaType === "tv" ? (malId ? 1 : Number(season)) : undefined,
+    episodeNumber: mediaType === "tv" ? Number(episode) || 1 : undefined,
   });
   const saveProgress = useCallback(
-    (opts: { completed?: boolean } = {}) => {
+    (opts: { completed?: boolean } = {}, identity: ProgressIdentity = progressIdentityRef.current()) => {
       const video = videoRef.current;
-      if (!video || !progressContentId) return;
+      if (!video || !progressContentId || !sameItem(identity,progressIdentityRef.current())) return;
+      const session=progressSessionRef.current;
+      if(!session)return;
+      const ranges=video.played;const tailPlayed=ranges.length>0?ranges.end(ranges.length-1)-ranges.start(ranges.length-1):0;
+      const ended=opts.completed===true&&video.ended&&!video.error&&!video.seeking&&tailPlayed>=Math.min(5,Number.isFinite(video.duration)?video.duration:5);
       const dur = Number.isFinite(video.duration) ? video.duration : 0;
       updateWatchProgress({
-        ...progressIdentityRef.current(),
+        ...identity,
         currentTime: video.currentTime || 0,
         duration: dur,
         title,
         posterPath: details?.poster_path ?? (animePoster || undefined),
         backdropPath: details?.backdrop_path ?? undefined,
-        malId: malId ? Number(malId) : undefined,
-        completed: opts.completed,
+        malId: identity.malId,
+        ...session.context,
+        progressSequence:++session.sequence,
+        explicitStartOver:explicitStartOverRef.current,
+        completionEvidence:ended?"ended":"position",
+        completed:ended,
       });
     },
-    [progressContentId, title, details?.poster_path, details?.backdrop_path, animePoster, malId],
+    [progressContentId, title, details?.poster_path, details?.backdrop_path, animePoster],
   );
   const saveProgressRef = useRef(saveProgress);
   saveProgressRef.current = saveProgress;
@@ -2749,15 +2859,18 @@ function WatchInner() {
     if (status !== "ready" || !activeUrl) return;
     const video = videoRef.current;
     if (!video) return;
+    // Cleanup belongs to the episode this effect observed, even after the next render updated the identity ref.
+    const identity = progressIdentityRef.current();
+    const save = () => saveProgressRef.current({}, identity);
     const tick = () => {
-      if (!video.paused && !video.ended) saveProgressRef.current();
+      if (!video.paused && !video.ended) save();
     };
     const id = window.setInterval(tick, 5000);
-    const onPause = () => saveProgressRef.current();
+    const onPause = save;
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") saveProgressRef.current();
+      if (document.visibilityState === "hidden") save();
     };
-    const onLeave = () => saveProgressRef.current();
+    const onLeave = save;
     video.addEventListener("pause", onPause);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onLeave);
@@ -2768,7 +2881,7 @@ function WatchInner() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onLeave);
       window.removeEventListener("beforeunload", onLeave);
-      saveProgressRef.current(); // episode switch / unmount
+      save(); // episode switch / unmount
     };
   }, [status, activeUrl]);
 
@@ -2890,9 +3003,11 @@ function WatchInner() {
       <div className="cinema-stage">
         <video
           ref={videoRef}
+          data-flyx-remote-player={JSON.stringify([isAnime ? "anime" : mediaType, malId || tmdbId, season, episode])}
+          data-flyx-remote-transfer={remoteTransfer}
           className="cinema-video"
           playsInline
-          autoPlay={playbackPolicyReady && !silentPlayback}
+          autoPlay={playbackPolicyReady && !silentPlayback && !remotePrepare}
           muted={silentPlayback || muted}
           style={{
             // Keep the frame visible while paused — only hide during initial buffer
@@ -3209,10 +3324,10 @@ function WatchInner() {
             item={{
               kind: "video",
               tmdbId: malId ? Number(tmdbId) || 0 : Number(tmdbId),
-              // Anime routes by malId and uses absolute episode numbers (season 1).
-              mediaType: malId ? "tv" : mediaType,
-              season: malId ? 1 : mediaType === "tv" ? Number(season) : undefined,
-              episode: malId ? Number(episode) : mediaType === "tv" ? Number(episode) : undefined,
+              // MAL movies remain movies; MAL series use absolute episodes in season 1.
+              mediaType,
+              season: mediaType === "tv" ? (malId ? 1 : Number(season)) : undefined,
+              episode: mediaType === "tv" ? Number(episode) : undefined,
               malId: malId ? Number(malId) : undefined,
               title,
             }}

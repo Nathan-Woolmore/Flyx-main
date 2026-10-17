@@ -10,6 +10,7 @@ import {
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { ExtensionGate } from "@/components/ExtensionGate";
+import styles from "./AnimePage.module.css";
 import {
   jikanList,
   jikanSearch,
@@ -328,7 +329,7 @@ function HeroSection({
   const chip = typeChip(current.type);
 
   return (
-    <section className="relative h-[52vh] min-h-[340px] max-h-[520px] overflow-hidden">
+    <section className={styles.hero}>
       <motion.div
         key={current.mal_id}
         initial={{ opacity: 0, scale: 1.04 }}
@@ -350,13 +351,13 @@ function HeroSection({
         <div className="hero-vignette" />
       </motion.div>
 
-      <div className="content-container relative flex h-full items-end pb-8 md:pb-10">
+      <div className={`content-container ${styles.heroInner}`}>
         <motion.div
           key={`copy-${current.mal_id}`}
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.08 }}
-          className="max-w-2xl"
+          className={styles.heroCopy}
         >
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="badge">Featured</span>
@@ -400,7 +401,7 @@ function HeroSection({
             )}
           </div>
 
-          <div className="mt-5 flex flex-wrap gap-2.5">
+          <div className={styles.heroControls}>
             <button
               type="button"
               onClick={() => onPlay(current)}
@@ -409,30 +410,22 @@ function HeroSection({
               <PlayIcon className="h-4 w-4" />
               View Details
             </button>
-          </div>
 
-          {candidates.length > 1 && (
-            <div className="mt-5 flex gap-1.5">
-              {candidates.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => onSelectIdx(i)}
-                  className={`h-1 rounded-full transition-all duration-300 ${
-                    i === hero?.idx
-                      ? "w-6 bg-[#00e5bf]"
-                      : "w-3 bg-white/20 hover:bg-white/40"
-                  }`}
-                  style={
-                    i === hero?.idx
-                      ? { boxShadow: "0 0 12px rgba(0,229,191,0.5)" }
-                      : undefined
-                  }
-                  aria-label={`Show featured ${i + 1}`}
-                />
-              ))}
-            </div>
-          )}
+            {candidates.length > 1 && (
+              <div className={styles.pagination} aria-label="Featured anime">
+                {candidates.map((_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => onSelectIdx(i)}
+                    className={`${styles.dot} ${i === hero?.idx ? styles.activeDot : ''}`}
+                    aria-current={i === hero?.idx ? 'true' : undefined}
+                    aria-label={`Show featured ${i + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </motion.div>
       </div>
     </section>
