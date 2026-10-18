@@ -2,7 +2,7 @@ import SwiftUI
 @preconcurrency import AVKit
 import Observation
 
-struct PhonePlaybackSelection:Encodable,Identifiable,Sendable {let kind:String;let contentID:Int;let season:Int?;let episode:Int?;var id:String{"\(kind):\(contentID):\(season ?? 1):\(episode ?? 1)"}}
+struct PhonePlaybackSelection:Codable,Hashable,Identifiable,Sendable {let kind:String;let contentID:Int;let season:Int?;let episode:Int?;var id:String{"\(kind):\(contentID):\(season ?? 1):\(episode ?? 1)"}}
 struct PhoneMediaOperation:Encodable {let operation:String;var handle:String?;var offset:Int64?;var length:Int?;var position:Double?;var paused:Bool?;var selection:PhonePlaybackSelection?;var resourceID:String?;var range:String?;var sourceID:String?}
 struct PhoneMediaGrant:Decodable,Sendable {let handle:String;let title:String;let position:Double;let duration:Double;let paused:Bool;let format:String;var mode:String?;var currentSource:String?;var sources:[PhoneSource]?}
 struct PhoneSource:Decodable,Identifiable,Sendable {let id:String;let provider:String;let quality:String;let language:String;let format:String;var label:String{[provider,quality,language.uppercased()].filter{!$0.isEmpty}.joined(separator:" · ")}}

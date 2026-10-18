@@ -425,3 +425,80 @@ it("rejects incomplete episode identity instead of persisting an unmatchable new
   }
   expect((await import("./manager")).listJobs()).toEqual([]);
 });
+
+
+it("serializes repeated and concurrent queue requests, reuses verified completed files and survives reload", async () => {
+  const manager = await import("./manager");
+  const input = { kind: "video" as const, tmdbId: 501, mediaType: "movie" as const, title: "Admission fixture" };
+  const replies = await Promise.all(Array.from({ length: 12 }, () => manager.createOrReuseJobs([input])));
+  const id = replies[0][0].id;
+  expect(new Set(replies.map(result => result[0].id))).toEqual(new Set([id]));
+  await vi.waitFor(() => expect(manager.getJob(id)?.status).toBe("done"));
+  const job = manager.getJob(id)!;
+  const before = await fs.readFile(job.filepath!);
+  expect((await manager.createOrReuseJobs([{ ...input, quality: "1080p" }]))[0].id).toBe(id);
+  expect(await fs.readFile(job.filepath!)).toEqual(before);
+  if (globalState.__flyxDownloads?.persistTimer) clearTimeout(globalState.__flyxDownloads.persistTimer);
+  delete globalState.__flyxDownloads;
+  vi.resetModules();
+  const reloaded = await import("./manager");
+  expect((await reloaded.createOrReuseJobs([input]))[0].id).toBe(id);
+  expect(reloaded.listJobs()).toHaveLength(1);
+  await fs.unlink(job.filepath!);
+  const replacement = (await reloaded.createOrReuseJobs([input]))[0];
+  expect(replacement.id).not.toBe(id);
+  await vi.waitFor(() => expect(reloaded.getJob(replacement.id)?.status).toBe("done"));
+});
+
+it("keeps movie, exact TV episodes and specials distinct while deduplicating each selection", async () => {
+  const manager = await import("./manager");
+  const selections = [
+    { kind: "video" as const, tmdbId: 502, mediaType: "movie" as const },
+    ...[{ season: 0, episode: 1 }, { season: 1, episode: 1 }, { season: 1, episode: 2 }].map(value => ({ kind: "video" as const, tmdbId: 502, mediaType: "tv" as const, ...value })),
+  ];
+  const first = await manager.createOrReuseJobs(selections);
+  expect(new Set(first.map(job => job.id)).size).toBe(4);
+  expect((await manager.createOrReuseJobs(selections)).map(job => job.id)).toEqual(first.map(job => job.id));
+  await vi.waitFor(() => expect(manager.listJobs().every(job => job.status === "done")).toBe(true));
+});
+
+it("rejects stale cancellation and keeps completed media when explicitly removing its download record", async () => {
+  const manager = await import("./manager");
+  const [job] = await manager.createOrReuseJobs([{ kind: "video", tmdbId: 503, mediaType: "movie" }]);
+  await vi.waitFor(() => expect(manager.getJob(job.id)?.status).toBe("done"));
+  const file = manager.getJob(job.id)!.filepath!;
+  const bytes = await fs.readFile(file);
+  const api = await import("@/app/api/downloads/[id]/route");
+  const request = (intent: string) => new NextRequest("http://127.0.0.1/api/downloads/" + job.id, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intent }) });
+  const context = { params: Promise.resolve({ id: job.id }) };
+  expect((await api.DELETE(request("cancel"), context)).status).toBe(409);
+  expect(manager.getJob(job.id)).not.toBeNull();
+  expect((await api.DELETE(request("remove-history"), context)).status).toBe(200);
+  expect(manager.getJob(job.id)).toBeNull();
+  expect(await fs.readFile(file)).toEqual(bytes);
+});
+
+it("rechecks an action intent after the confirmation body arrives and reports current file availability", async () => {
+  const manager = await import("./manager");
+  const [created] = await manager.createOrReuseJobs([{ kind: "video", tmdbId: 504, mediaType: "movie" }]);
+  await vi.waitFor(() => expect(manager.getJob(created.id)?.status).toBe("done"));
+  const job = manager.getJob(created.id)!;
+  const api = await import("@/app/api/downloads/[id]/route");
+  const stale = { json: async () => { job.status = "queued"; return { intent: "remove-history" }; } } as unknown as NextRequest;
+  expect((await api.DELETE(stale, { params: Promise.resolve({ id: job.id }) })).status).toBe(409);
+  expect(manager.getJob(job.id)).not.toBeNull();
+  job.status = "done";
+  const collection = await import("@/app/api/downloads/route");
+  expect((await (await collection.GET()).json()).jobs[0].localPlaybackAvailable).toBe(true);
+  await fs.unlink(job.filepath!);
+  expect((await (await collection.GET()).json()).jobs[0].localPlaybackAvailable).toBe(false);
+});
+
+it("does not restart a manga collection while its record/cache removal lease is held", async () => {
+  const fixture = await legacy({ kind: "manga", status: "error", collection: { language: "en", edition: "official" } });
+  const state = (globalThis as unknown as { __flyxDownloads: { removing?: Set<string> } }).__flyxDownloads;
+  state.removing = new Set([fixture.job.id]);
+  expect(fixture.manager.retryCollectionJob(fixture.job.id)).toBe(false);
+  expect(fixture.manager.getJob(fixture.job.id)?.status).toBe("error");
+  state.removing.clear();
+});

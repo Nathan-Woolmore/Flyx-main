@@ -12,7 +12,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { localFileRevision } from "./local-files";
+import { localFileRevision, openLocalDownload } from "./local-files";
+import { downloadIdentity, localIdentityKey } from "./local-identity";
 import {
   assertRelinkUnambiguous,
   LocalRelinkError,
@@ -45,6 +46,8 @@ interface DownloadState {
   active: number;
   initialized: boolean;
   persistTimer: ReturnType<typeof setTimeout> | null;
+  admission?: Promise<void>;
+  removing?: Set<string>;
 }
 
 const g = globalThis as unknown as { __flyxDownloads?: DownloadState };
@@ -389,6 +392,36 @@ export function createJobs(items: DownloadItemInput[]): DownloadJob[] {
   return created;
 }
 
+/** Serialize queue admission across route bundles; persisted jobs also protect after restart. */
+export async function createOrReuseJobs(items: DownloadItemInput[]): Promise<DownloadJob[]> {
+  init();
+  const before = state.admission ?? Promise.resolve();
+  let release!: () => void;
+  state.admission = new Promise<void>(resolve => { release = resolve; });
+  await before.catch(() => undefined);
+  try {
+    const result: DownloadJob[] = [];
+    for (const item of items) {
+      const identity = item.kind === "video"
+        ? downloadIdentity({ ...item, status: "done" } as DownloadJob) : null;
+      let existing: DownloadJob | undefined;
+      if (identity) {
+        for (const job of listJobs()) {
+          const other = downloadIdentity({ ...job, status: "done" });
+          if (!other || localIdentityKey(other) !== localIdentityKey(identity)) continue;
+          if (["queued", "downloading", "processing"].includes(job.status)) { existing = job; break; }
+          if (job.status === "done") {
+            const file = await openLocalDownload(job, listJobs(), getDownloadDir());
+            if (file) { await file.handle.close(); const current=state.jobs.get(job.id); if(current?.status === "done" && current.fileRevision === file.revision){ existing = current; break; } }
+          }
+        }
+      }
+      result.push(existing ?? createJobs([item])[0]!);
+    }
+    return result;
+  } finally { release(); }
+}
+
 export function cancelJob(id: string): boolean {
   init();
   const job = state.jobs.get(id);
@@ -428,19 +461,23 @@ export async function removeJobWithCache(id: string): Promise<boolean> {
   init();
   const job = state.jobs.get(id);
   if (!job) return false;
-  if (job.collectionRoot) {
-    if (state.controllers.has(id))
-      throw new Error("Wait for this download to stop before removing it.");
-    await discardMangaCollectionCache(job.collectionRoot, id);
-  }
-  return removeJob(id);
+  const removing = state.removing ??= new Set<string>();
+  if (removing.has(id)) throw new Error("This download is already being removed.");
+  removing.add(id);
+  try {
+    if (job.collectionRoot) {
+      if (state.controllers.has(id)) throw new Error("Wait for this download to stop before removing it.");
+      await discardMangaCollectionCache(job.collectionRoot, id);
+    }
+    return removeJob(id);
+  } finally { removing.delete(id); }
 }
 
 /** Reuses the exact chapter snapshot and verified cached pages. */
 export function retryCollectionJob(id: string): boolean {
   init();
   const job = state.jobs.get(id);
-  if (!job?.collection || !["error", "cancelled"].includes(job.status) || state.controllers.has(id))
+  if (state.removing?.has(id) || !job?.collection || !["error", "cancelled"].includes(job.status) || state.controllers.has(id))
     return false;
   patch(id, { status: "queued", error: undefined, progress: 0 }, { immediate: true });
   state.queue.push(id);

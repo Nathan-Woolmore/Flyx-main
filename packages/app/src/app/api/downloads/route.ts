@@ -7,7 +7,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/get-session";
-import { createJobs, listJobs } from "@/lib/downloads/manager";
+import { createOrReuseJobs, listJobs } from "@/lib/downloads/manager";
+import { openLocalDownload } from "@/lib/downloads/local-files";
+import { getDownloadDir } from "@/lib/downloads/types";
 import type { DownloadItemInput } from "@/lib/downloads/types";
 
 export const runtime = "nodejs";
@@ -112,7 +114,14 @@ export async function GET() {
   }
   return NextResponse.json({
     ok: true,
-    jobs: listJobs().map(({ collectionPlan: _plan, ...visible }) => visible),
+    jobs: await Promise.all(listJobs().map(async ({ collectionPlan: _plan, ...visible }) => {
+      const file = visible.kind === "video" && visible.status === "done"
+        ? await openLocalDownload(visible, listJobs(), getDownloadDir()) : null;
+      const localPlaybackAvailable = file !== null;
+      const fileBytes = file?.size;
+      await file?.handle.close();
+      return { ...visible, localPlaybackAvailable, ...(fileBytes ? { fileBytes } : {}) };
+    })),
   });
 }
 
@@ -131,7 +140,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const items = validateItems(body?.items);
-    const jobs = createJobs(items);
+    const jobs = await createOrReuseJobs(items);
     return NextResponse.json({ ok: true, jobs: jobs.map((j) => ({ id: j.id, label: j.label })) });
   } catch (err) {
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 400 });

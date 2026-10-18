@@ -131,7 +131,7 @@ struct RemotePoster:View {
     private var symbol:String {switch item.kind {case "manga":"book.closed";case "tv":"tv";case "anime":"play.rectangle";default:"film"}}
     var body:some View {GeometryReader {geometry in
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("header")||$0=="pagination"}) {
+        if ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("header")||$0=="pagination"||$0.hasSuffix("41")}) {
             ZStack{LinearGradient(colors:[.orange,.red,.indigo],startPoint:.topLeading,endPoint:.bottomTrailing);Image(systemName:symbol).font(.system(size:70,weight:.ultraLight)).foregroundStyle(.white.opacity(0.35))}.frame(width:geometry.size.width,height:geometry.size.height)
         }else{imageContent(geometry)}
         #else

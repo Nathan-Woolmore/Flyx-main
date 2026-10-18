@@ -53,6 +53,7 @@ struct PlayerPresentation:Identifiable {let id=UUID();let selection:PhonePlaybac
             }.background(.black).navigationTitle("Now Playing").navigationBarTitleDisplayMode(.inline)
                 .toolbar(immersive ? .hidden:.visible,for:.navigationBar).statusBarHidden(immersive)
                 .toolbar{if showClose{ToolbarItem(placement:.cancellationAction){Button("Close"){phone.recordProgress(client,force:true);dismiss()}}}}
+                .toolbar{ToolbarItem(placement:.topBarTrailing){Menu{secondaryActions}label:{Image(systemName:"ellipsis").frame(width:44,height:44)}.accessibilityLabel("Playback options")}}
                 .onChange(of:scenePhase){_,phase in if phase != .active{phone.recordProgress(client,force:true)}}
                 .sheet(isPresented:$outputsPresented){outputSheet}
                 .onChange(of:landscape){_,value in if !value{suppressLandscapeFullscreen=false}}
@@ -78,29 +79,31 @@ struct PlayerPresentation:Identifiable {let id=UUID();let selection:PhonePlaybac
     }.padding(16)}.buttonStyle(.plain)}
     private var receiverList:some View{List{if busy{ProgressView("Finding TVs…")}else if devices.isEmpty{Text("No TVs found. Check that the Mac and TV share a network.").foregroundStyle(.secondary)};ForEach(devices){device in Button(device.name){run{try await switchOutput("tv",receiverID:device.id)}}.disabled(busy || !active)};Button("Refresh receivers"){run{let value=try await client.cast("cast.discover");devices=value.devices ?? []}}.disabled(busy);if let error{Text(error).foregroundStyle(.orange)}}.navigationTitle("Cast to TV").task{guard transferV2 else{return};run{let value=try await client.cast("cast.discover");devices=value.devices ?? []}}}
     private var portrait:some View {ScrollView {VStack(spacing:20){
-        HStack{MacConnectionIndicator(client:client);Spacer();Text("FLYX").font(.caption.bold()).tracking(2).foregroundStyle(.secondary)}
         Group{if phoneActive{PhoneVideoSurface(player:phone.player).allowsHitTesting(false)}else{RemotePoster(item:nowPlaying)}}
             .frame(height:220).clipShape(.rect(cornerRadius:20))
-            .overlay(alignment:.bottomLeading){Label(output,systemImage:outputSymbol).font(.caption.weight(.semibold)).padding(10).background(.ultraThinMaterial,in:.capsule).padding(12)}
             .overlay(alignment:.topTrailing){if phoneActive{Button{fullScreen=true}label:{Image(systemName:"arrow.up.left.and.arrow.down.right").frame(width:44,height:44).background(.black.opacity(0.6),in:.circle)}.padding(8).accessibilityLabel("Fullscreen video")}}
-        VStack(spacing:6){Text("NOW PLAYING").font(.caption2.weight(.semibold)).tracking(2).foregroundStyle(.secondary);Text(nowPlaying.title).font(.title2.bold()).multilineTextAlignment(.center).lineLimit(2);Text(active ? (playing ? "Playing on \(output)":"Paused on \(output)"):"Choose a title in Browse to begin.").font(.subheadline).foregroundStyle(.secondary)}.frame(maxWidth:.infinity)
+        VStack(spacing:6){Text(nowPlaying.title).font(.title2.bold()).multilineTextAlignment(.center).lineLimit(2);Text(active ? (playing ? "Playing on \(output)":"Paused on \(output)"):"Choose a title in Browse to begin.").font(.subheadline).foregroundStyle(.secondary)}.frame(maxWidth:.infinity)
         VStack(spacing:4){Slider(value:$seek,in:0...max(1,duration),onEditingChanged:{editing in scrubbing=editing;if !editing{run{try await action("seek",seconds:seek)}}}).disabled(!active || busy || duration<=0).accessibilityLabel("Playback position");HStack{Text(clock(seek));Spacer();Text(clock(duration))}.font(.caption.monospacedDigit()).foregroundStyle(.secondary)}
         HStack(spacing:36){Button{run{try await action("seek",seconds:max(0,seek-15))}}label:{Image(systemName:"gobackward.15").font(.system(size:29)).frame(width:52,height:60)}.disabled(!active || busy || duration<=0).accessibilityLabel("Back 15 seconds")
             Button{run{try await action(playing ? "pause":"resume")}}label:{ZStack{Circle().fill(FlyxTheme.accent).frame(width:84,height:84);if busy || phone.busy{ProgressView().tint(FlyxTheme.ink)}else{Image(systemName:playing ? "pause.fill":"play.fill").font(.system(size:30,weight:.semibold)).foregroundStyle(FlyxTheme.ink)}}}.disabled(!active || busy || phone.busy).accessibilityLabel(playing ? "Pause":"Play")
             Button{run{try await action("seek",seconds:min(duration,seek+15))}}label:{Image(systemName:"goforward.15").font(.system(size:29)).frame(width:52,height:60)}.disabled(!active || busy || duration<=0).accessibilityLabel("Forward 15 seconds")
         }.buttonStyle(.plain)
         HStack{Button{outputsPresented=true}label:{Label(output,systemImage:outputSymbol).frame(maxWidth:.infinity,minHeight:48)}.buttonStyle(.bordered).accessibilityLabel("Playback destination")
-            Button{run{try await action("stop")}}label:{Label("Stop",systemImage:"stop.fill").frame(minWidth:70,minHeight:48)}.buttonStyle(.bordered).disabled(!active || busy)}
-        if phoneActive,!phone.sources.isEmpty{Menu{ForEach(phone.sources){source in Button{run{await phone.choose(client,sourceID:source.id);if let error=phone.error{throw RemoteFailure(message:error)}}}label:{if source.id==phone.currentSource{Label(source.label,systemImage:"checkmark")}else{Text(source.label)}}}}label:{Label("Source: \(phone.sources.first{$0.id==phone.currentSource}?.label ?? "Auto")",systemImage:"server.rack")}.disabled(busy || phone.busy)}
-        else if macSourcesSupported,!phoneActive,status?.output != "tv"{Menu{Button("Refresh sources"){run{try await loadMacSources()}};ForEach(macSources){source in Button{run{let _:CommandResult=try await client.request("/remote/v1/sources",body:JSONEncoder().encode(MacSourceOperation(operation:"select",sourceID:source.id)));try await loadMacSources();await refresh()}}label:{if source.selected{Label(source.label,systemImage:"checkmark")}else{Text(source.label)}}}}label:{Label("Mac source",systemImage:"server.rack")}.disabled(busy)}
-        else{Label(phoneActive ? "Source choices require the updated Mac bridge.":"Source selection is managed by the Mac player.",systemImage:"server.rack").font(.caption).foregroundStyle(.secondary)}
+}
         if phoneActive || status?.audioControl==true {HStack{Button{run{if phoneActive{phone.player.isMuted.toggle()}else{let result:CommandResult=try await client.request("/remote/v1/commands",body:JSONEncoder().encode(RemoteMuteAction(output:status?.output ?? "mac",value:status?.isMuted != true)));status=result.status}}}label:{Image(systemName:(phoneActive ? phone.player.isMuted:status?.isMuted==true) ? "speaker.slash.fill":"speaker.wave.2.fill").frame(width:44,height:44)}.disabled(!active || busy).accessibilityLabel("Mute current output")
             Slider(value:$audioVolume,in:0...1,onEditingChanged:{editing in audioScrubbing=editing;if !editing{run{if phoneActive{phone.player.volume=Float(audioVolume)}else{let result:CommandResult=try await client.request("/remote/v1/commands",body:JSONEncoder().encode(RemoteVolumeAction(output:status?.output ?? "mac",value:audioVolume)));status=result.status}}}}).disabled(!active || busy).accessibilityLabel("\(output) player volume")}}
-        else{Label(status?.audioControl==false ? "Audio changes are locked by the Mac silent playback setting.":"Audio controls require the updated Mac app.",systemImage:"speaker.slash").font(.footnote).foregroundStyle(.secondary)}
+
         if busy || phone.busy{ProgressView("Preparing destination…")}
         if let message=error ?? phone.error ?? phone.progress.warning{Text(message).font(.footnote).foregroundStyle(.orange).frame(maxWidth:.infinity,alignment:.leading)}
-        if phoneActive{Text("Compatible MP4 and clear on-demand HLS. Encrypted, live and unsupported formats remain unavailable on iPhone.").font(.caption).foregroundStyle(.secondary)}
+
     }.padding(24)}}
+    @ViewBuilder private var secondaryActions:some View {
+        if phoneActive,!phone.sources.isEmpty{Menu{ForEach(phone.sources){source in Button{run{await phone.choose(client,sourceID:source.id);if let error=phone.error{throw RemoteFailure(message:error)}}}label:{if source.id==phone.currentSource{Label(source.label,systemImage:"checkmark")}else{Text(source.label)}}}}label:{Label("Source: \(phone.sources.first{$0.id==phone.currentSource}?.label ?? "Auto")",systemImage:"server.rack")}.disabled(busy || phone.busy)}
+        else if macSourcesSupported,!phoneActive,active,status?.output != "tv"{Menu{Button("Refresh sources"){run{try await loadMacSources()}};ForEach(macSources){source in Button{run{let _:CommandResult=try await client.request("/remote/v1/sources",body:JSONEncoder().encode(MacSourceOperation(operation:"select",sourceID:source.id)));try await loadMacSources();await refresh()}}label:{if source.selected{Label(source.label,systemImage:"checkmark")}else{Text(source.label)}}}}label:{Label("Provider & quality",systemImage:"slider.horizontal.3")}.disabled(busy)}
+
+        Button("Stop playback",systemImage:"stop.fill"){run{try await action("stop")}}.disabled(!active || busy)
+        if status?.audioControl==false{Text("Audio changes are locked by the Mac silent playback setting.")}
+    }
     private var outputSheet:some View {NavigationStack{List{
         Section("Playback destination"){
             Button{run{try await switchToMac()}}label:{Label("Mac",systemImage:"desktopcomputer")}.disabled(busy || (!phoneActive && !(transferV2 && status?.output=="tv")))

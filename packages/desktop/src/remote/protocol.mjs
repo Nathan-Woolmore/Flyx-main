@@ -7,7 +7,7 @@ export function createRemoteHandler({core, pairing, catalog, status, downloads, 
       const url = new URL(path, 'https://remote.invalid');
       if (url.origin !== 'https://remote.invalid') return {status:400, body:{error:'Invalid path'}};
       if (headers.origin || headers.Origin) return {status:403, body:{error:'Browser origins are not allowed'}};
-      if (method === 'GET' && url.pathname === '/remote/v1/info') return {status:200, body:{protocolVersion:1, name:'Flyx Mac', capabilities:['catalog.read','playback.control'],features:['catalog.minVotes',...(progress?['player.progress.v1']:[]),...(phoneMedia?['phone.direct.mp4','phone.direct.hls']:[]),...(sources?['player.sources.v1']:[]),...(transfers?['player.transfer.api.v2','player.transfer.confirm.v2']:[])]}};
+      if (method === 'GET' && url.pathname === '/remote/v1/info') return {status:200, body:{protocolVersion:1, name:'Flyx Mac', capabilities:['catalog.read','playback.control'],features:['catalog.minVotes',...(downloads?['downloads.library.v1']:[]),...(progress?['player.progress.v1']:[]),...(phoneMedia?['phone.direct.mp4','phone.direct.hls']:[]),...(sources?['player.sources.v1']:[]),...(transfers?['player.transfer.api.v2','player.transfer.confirm.v2']:[])]}};
       if (method === 'POST' && url.pathname === '/remote/v1/pair/request') return {status:202, body:pairing.request(body ?? {})};
       if (method === 'POST' && url.pathname === '/remote/v1/pair/collect') return {status:200, body:pairing.collect(body?.requestID)};
       const authorization = headers.authorization ?? headers.Authorization ?? '';

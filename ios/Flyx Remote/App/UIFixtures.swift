@@ -19,6 +19,13 @@ final class UIOnlyProtocol: URLProtocol, @unchecked Sendable {
   }
   if ProcessInfo.processInfo.arguments.contains("skeleton") { return } // DEBUG-only pending request for stable placeholder QA.
   let url=request.url!,kind=URLComponents(url:url,resolvingAgainstBaseURL:false)?.queryItems?.first(where:{$0.name=="kind"})?.value ?? "movie"
+  let qaMode=ProcessInfo.processInfo.arguments.last ?? ""
+  if qaMode.hasSuffix("41"),url.path=="/remote/v1/info"{reply(["features":["phone.direct.mp4","phone.direct.hls","player.transfer.confirm.v2","downloads.library.v1","player.sources.v1"]]);return}
+  if qaMode.hasSuffix("41"),url.path=="/remote/v1/commands",Self.payload(request)["type"] as? String=="cast.discover"{
+   if qaMode=="cast-loading41"{return}
+   if qaMode=="cast-error41"{reply(["error":"Synthetic receiver discovery unavailable"],status:503);return}
+   reply(["ok":true,"devices":qaMode=="cast-empty41" ? []:[["id":"fixture-living-room","name":"Living Room TV"],["id":"fixture-study","name":"Study Display"]]]);return
+  }
   let titles=["The Last Horizon","Midnight in Orbit","A Quiet Adventure","Beyond the Sea"]
   let items:[[String:Any]]=titles.enumerated().map{index,title in ["id":String(index+1),"kind":kind,"title":title,"overview":"A synthetic story used to inspect the Flyx Remote interface. All actions in this preview remain inside the fixture.","rating":7+Double(index)/2,"releaseDate":"2026-10-06"]}
   if url.path=="/remote/v1/session",ProcessInfo.processInfo.arguments.contains("header-disconnected"){reply(["code":"SYNTHETIC_OFFLINE"],status:401);return}
@@ -82,7 +89,7 @@ final class UIOnlyProtocol: URLProtocol, @unchecked Sendable {
    let status:[String:Any]=["state":"paused","position":0.5,"duration":2,"title":"Synthetic silent clip","output":"mac","outputName":"Mac","volume":audio.0,"isMuted":audio.1,"audioControl":true,"phonePlayback":true]
    body=url.path.hasSuffix("commands") ? ["ok":true,"status":status]:status
   case "/remote/v1/downloads" where request.httpMethod == "POST":body=["ok":true]
-  case "/remote/v1/downloads":body=["jobs":[["id":"11111111-1111-4111-8111-111111111111","label":"The Last Horizon","status":"downloading","progress":42.0,"bytes":84300000,"canRetry":false],["id":"22222222-2222-4222-8222-222222222222","label":"Beyond the Sea · Episode 2","status":"done","progress":100.0,"bytes":243000000,"canRetry":false]]]
+  case "/remote/v1/downloads":body=["jobs":[["id":"11111111-1111-4111-8111-111111111111","label":"The Last Horizon","kind":"video","status":"done","progress":100,"bytes":1234000000,"totalBytes":1234000000,"quality":"1080p","canRetry":false,"localPlaybackAvailable":true,"selection":["kind":"movie","contentID":1],"title":["id":"1","kind":"movie","title":"The Last Horizon","overview":"Synthetic QA metadata","posterURL":NSNull(),"rating":7.8,"releaseDate":"2026-10-01"]],["id":"22222222-2222-4222-8222-222222222222","label":"Beyond the Sea","kind":"video","status":"downloading","progress":42,"bytes":84300000,"totalBytes":200000000,"quality":"720p","canRetry":false,"localPlaybackAvailable":false,"selection":["kind":"tv","contentID":2,"season":0,"episode":2],"title":["id":"2","kind":"tv","title":"Beyond the Sea","overview":"Synthetic QA metadata","posterURL":NSNull(),"rating":7.8,"releaseDate":"2026-10-01"]],["id":"33333333-3333-4333-8333-333333333333","label":"A Quiet Adventure","kind":"video","status":"done","progress":100,"bytes":440000000,"canRetry":false,"localPlaybackAvailable":false,"selection":["kind":"movie","contentID":3],"title":["id":"3","kind":"movie","title":"A Quiet Adventure","overview":"Synthetic QA metadata","posterURL":NSNull(),"rating":7.8,"releaseDate":"2026-10-01"]],["id":"44444444-4444-4444-8444-444444444444","label":"Synthetic manga collection","kind":"manga","status":"cancelled","progress":60,"bytes":13000000,"canRetry":true,"removalClearsCache":true]]]
   default:body=["ok":true,"status":["state":"playing","position":284,"duration":6240],"devices":[["id":"fixture-tv","name":"Preview TV"]],"castState":["isConnected":true,"isCasting":true,"deviceName":"Preview TV"]]
   }
   client?.urlProtocol(self,didReceive:HTTPURLResponse(url:url,statusCode:200,httpVersion:nil,headerFields:["Content-Type":"application/json"])!,cacheStoragePolicy:.notAllowed)
@@ -100,11 +107,12 @@ struct UIOnlyRoot:View {
    else if mode=="switching-e2e40"{NativeSwitchingFixture(client:client)}
    else if mode.hasPrefix("native-progress-"){NativeProgressFixture(client:client,mode:mode)}
    else if mode=="connection"{ConnectionView()}
+   else if mode.hasPrefix("cast-"){CastReceiverPicker(client:client){_ in}}
    else if mode.hasPrefix("details"){NavigationStack{RemoteDetailView(client:client,item:RemoteTitle(id:"1",kind:mode.hasSuffix("-tv") ? "tv":"movie",title:"The Last Horizon",overview:"A synthetic story used to inspect the interface.",posterURL:nil))}}
    else if mode=="unified-phone"{RemoteControlView(client:client,initialSelection:PhonePlaybackSelection(kind:"movie",contentID:1,season:nil,episode:nil),initialItem:RemoteTitle(id:"1",kind:"movie",title:"Synthetic silent clip",overview:"",posterURL:nil),startsOnPhone:true)}
    else if mode.hasPrefix("transfer-e2e"){NativeTransferFixture(client:client,cancel:mode.contains("cancel"))}
    else if mode=="remote" || mode=="remote-cancel"{RemoteControlView(client:client)}
-   else if mode=="downloads"{RemoteDownloadsView(client:client)}
+   else if mode.hasPrefix("downloads"){RemoteDownloadsView(client:client)}
    else{RemoteHomeView(client:client)}
   }.onAppear{TouchVerification.install()}.dynamicTypeSize(mode=="header-large" ? .accessibility1:.large).safeAreaInset(edge:.top){if !mode.hasPrefix("header") && mode != "pagination"{Text("PREVIEW · SYNTHETIC FIXTURES").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).frame(maxWidth:.infinity).padding(4)}}
  }

@@ -7,6 +7,19 @@ struct RemoteDetailView:View {
     @State private var details:RemoteDetails?
     @State private var directPhone=false
     @State private var destination="mac"
+    @Environment(\.playbackSession) private var sharedSession
+    @State private var localSession=PlaybackSession()
+    @State private var castPresented=false
+    @State private var selectedReceiver:RemoteCastDevice?
+    @State private var downloadState:RemoteDownload?
+    @State private var checkedDownloadKey=""
+    @State private var checkingDownload=true
+    @State private var downloadCheckFailed=false
+    @State private var downloadStateSupported=false
+    private var session:PlaybackSession{sharedSession ?? localSession}
+    private var destinationLabel:String{destination=="phone" ? "This iPhone":destination=="tv" ? selectedReceiver?.name ?? "TV":"Mac"}
+    private var downloadSelection:PhonePlaybackSelection?{guard let id=Int(item.id),item.kind != "manga",item.kind=="movie" || episode != nil else{return nil};return .init(kind:item.kind,contentID:id,season:item.kind=="movie" ? nil:(item.kind=="anime" ? 1:activeSeason),episode:item.kind=="movie" ? nil:episode)}
+    private var downloadKey:String{(downloadSelection?.id ?? "none")+String(downloadStateSupported)}
     @State private var savedProgress:SeriesProgress?
     @State private var progressSupported=false
     @State private var progressLoaded=false
@@ -44,21 +57,38 @@ struct RemoteDetailView:View {
             if let message{Text(message).font(.footnote).foregroundStyle(FlyxTheme.accent)}
             if let error{VStack(alignment:.leading,spacing:8){Text(error).font(.footnote).foregroundStyle(.orange);Button("Retry details"){retry+=1}}}
         }.padding(24)}.background(.black).navigationBarTitleDisplayMode(.inline)
-            .fullScreenCover(item:$playerPresentation){value in RemoteControlView(client:client,initialSelection:value.selection,initialItem:item,startsOnPhone:value.phone,initialPosition:value.position,showClose:true)}
+            .fullScreenCover(item:$playerPresentation){value in RemoteControlView(client:client,initialSelection:value.selection,initialItem:item,startsOnPhone:value.phone,initialPosition:value.position,showClose:true).environment(\.playbackSession,session)}
             .task(id:"\(selectedSeason.map(String.init) ?? "default"):\(retry)"){await loadDetails()}
+            .task(id:downloadKey){while !Task.isCancelled{await refreshDownloadState();do{try await Task.sleep(for:.seconds(5))}catch{return}}}
+            .sheet(isPresented:$castPresented){CastReceiverPicker(client:client){receiver in selectedReceiver=receiver;destination="tv"}}
+
     }
     private var playbackArea:some View {VStack(alignment:.leading,spacing:16){
         HStack{Text("PLAYBACK").font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary);Spacer();
-            Menu{Button{destination="mac"}label:{Label("Mac",systemImage:"desktopcomputer")};if directPhone{Button{destination="phone"}label:{Label("This iPhone",systemImage:"iphone")}}}label:{HStack(spacing:7){Image(systemName:destination=="phone" ? "iphone":"desktopcomputer");Text(destination=="phone" ? "This iPhone":"Mac");Image(systemName:"chevron.down").font(.caption2.weight(.bold))}.font(.subheadline.weight(.semibold)).frame(minHeight:44).padding(.horizontal,12).background(.white.opacity(0.06),in:.capsule)}.accessibilityLabel("Playback destination").accessibilityIdentifier("detail.destination").disabled(busy)
+            Menu{Button{destination="mac"}label:{Label("Mac",systemImage:"desktopcomputer")};if directPhone{Button{destination="phone"}label:{Label("This iPhone",systemImage:"iphone")}};Button{castPresented=true}label:{Label("Cast to TV…",systemImage:"tv")}}label:{HStack(spacing:7){Image(systemName:destination=="phone" ? "iphone":destination=="tv" ? "tv":"desktopcomputer");Text(destinationLabel).lineLimit(1);Image(systemName:"chevron.down").font(.caption2.weight(.bold))}.font(.subheadline.weight(.semibold)).frame(minHeight:44).padding(.horizontal,12).background(.white.opacity(0.06),in:.capsule)}.accessibilityLabel("Playback destination").accessibilityIdentifier("detail.destination").disabled(busy)
         }
         if item.kind != "movie"{episodeSelection}
         if let episodeLabel{Text(episodeLabel).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)}
-        Button{play()}label:{HStack(spacing:12){if busy{ProgressView().tint(FlyxTheme.ink)}else{Image(systemName:"play.fill").font(.system(size:21,weight:.semibold))};Text(busy ? "Preparing…":playLabel).font(.headline);Spacer()}.foregroundStyle(FlyxTheme.ink).padding(.horizontal,20).frame(maxWidth:.infinity,minHeight:58).background(FlyxTheme.accent,in:.rect(cornerRadius:16)).contentShape(.rect(cornerRadius:16))}.buttonStyle(.plain).disabled(busy || loadingDetails || (item.kind != "movie" && episode==nil)).accessibilityLabel("\(playLabel) \(episodeLabel ?? item.title) on \(destination=="phone" ? "this iPhone":"Mac")").accessibilityIdentifier("detail.play")
+        Button{play()}label:{HStack(spacing:12){if busy{ProgressView().tint(FlyxTheme.ink)}else{Image(systemName:"play.fill").font(.system(size:21,weight:.semibold))};Text(busy ? "Preparing…":playLabel).font(.headline);Spacer()}.foregroundStyle(FlyxTheme.ink).padding(.horizontal,20).frame(maxWidth:.infinity,minHeight:58).background(FlyxTheme.accent,in:.rect(cornerRadius:16)).contentShape(.rect(cornerRadius:16))}.buttonStyle(.plain).disabled(busy || loadingDetails || (item.kind != "movie" && episode==nil)).accessibilityLabel("\(playLabel) \(episodeLabel ?? item.title) on \(destinationLabel)").accessibilityIdentifier("detail.play")
         if progressSupported,savedProgress != nil{Button("Start over"){startOver=true;if item.kind != "movie"{selectedEpisode=episodes.first(where:{$0.number==savedProgress?.episode})?.number ?? episodes.first?.number}}.font(.subheadline).frame(minHeight:44).disabled(busy)}
         if let warning=details?.seasonError{Text(warning).font(.footnote).foregroundStyle(.orange);Button("Retry episodes"){retry+=1}}
         if item.kind != "movie",episodes.isEmpty{Text("No episodes are available from this provider yet.").font(.footnote).foregroundStyle(.secondary)}
-        if client.scopes.contains("downloads.write"){Menu{Button("Best available"){download(quality:nil)};ForEach(["480p","720p","1080p","2160p"],id:\.self){quality in Button(quality){download(quality:quality)}}}label:{Label("Download on Mac",systemImage:"arrow.down.circle").frame(minHeight:44)}.disabled(busy || (item.kind != "movie" && episode==nil))}
+        if client.scopes.contains("downloads.write"){downloadControl}
     }.padding(18).background(FlyxTheme.card,in:.rect(cornerRadius:22)).overlay{RoundedRectangle(cornerRadius:22).stroke(.white.opacity(0.07))}}
+    @ViewBuilder private var downloadControl:some View {
+        if checkingDownload{Label("Checking download…",systemImage:"arrow.down.circle").font(.subheadline).foregroundStyle(.secondary)}
+        else if !downloadStateSupported{Text("Update Flyx on Mac to check existing downloads.").font(.caption).foregroundStyle(.secondary)}
+        else if downloadCheckFailed{Button("Check download status"){Task{await refreshDownloadState()}}}
+        else if let job=downloadState,job.active || job.playable{Label(job.playable ? "Downloaded on Mac":job.stateLabel,systemImage:job.playable ? "checkmark.circle.fill":"arrow.down.circle").font(.subheadline).foregroundStyle(job.playable ? FlyxTheme.accent:.secondary)}
+        else{Menu{Button("Best available"){download(quality:nil)};ForEach(["480p","720p","1080p","2160p"],id:\.self){quality in Button(quality){download(quality:quality)}}}label:{Label(downloadState==nil ? "Download on Mac":"Retry download on Mac",systemImage:"arrow.down.circle").frame(minHeight:44)}.disabled(busy || loadingDetails || (item.kind != "movie" && episode==nil))}
+    }
+    private func refreshDownloadState()async{
+        guard downloadStateSupported,client.scopes.contains("downloads.read"),let selection=downloadSelection else{checkingDownload=false;downloadState=nil;return}
+        let key=downloadKey
+        if key != checkedDownloadKey{checkingDownload=true;downloadState=nil;downloadCheckFailed=false}
+        do{let value:RemoteDownloadList=try await client.request("/remote/v1/downloads");try Task.checkCancellation();guard key==downloadKey else{return};downloadState=value.jobs.first{$0.selection?.id==selection.id && ($0.active || $0.playable)} ?? value.jobs.first{$0.selection?.id==selection.id};checkedDownloadKey=key;checkingDownload=false;downloadCheckFailed=false}
+        catch{if !Task.isCancelled,key==downloadKey{checkedDownloadKey=key;checkingDownload=false;downloadCheckFailed=true}}
+    }
     @ViewBuilder private var episodeSelection:some View {
         if item.kind=="tv",let seasons=details?.seasons,!seasons.isEmpty{Picker("Season",selection:Binding(get:{activeSeason ?? 0},set:{selectedSeason=$0;selectedEpisode=nil})){ForEach(seasons,id:\.number){season in Text(season.number==0 ? "Specials":"Season \(season.number)").tag(season.number)}}.tint(FlyxTheme.accent).disabled(busy)}
         if !episodes.isEmpty{Picker("Episode",selection:Binding(get:{episode ?? 1},set:{selectedEpisode=$0})){ForEach(episodes){episode in Text("\(episode.number). \(episode.title)").tag(episode.number)}}.tint(FlyxTheme.accent).disabled(busy || loadingDetails)}
@@ -66,7 +96,7 @@ struct RemoteDetailView:View {
     private func loadDetails()async {
         struct Features:Decodable{var features:[String]?}
         let season=selectedSeason;loadingDetails=true;error=nil
-        if let info:Features=try? await client.request("/remote/v1/info"){directPhone=info.features?.contains(where:{$0=="phone.direct.mp4" || $0=="phone.direct.hls"})==true;progressSupported=info.features?.contains("player.progress.v1")==true}
+        if let info:Features=try? await client.request("/remote/v1/info"){downloadStateSupported=info.features?.contains("downloads.library.v1")==true;directPhone=info.features?.contains(where:{$0=="phone.direct.mp4" || $0=="phone.direct.hls"})==true;progressSupported=info.features?.contains("player.progress.v1")==true}
         do{let value=try await client.details(item,season:season);try Task.checkCancellation();guard season==selectedSeason else{return};details=value;loadingDetails=false
             if item.kind != "manga",progressSupported,!progressLoaded,let id=Int(item.id){progressLoaded=true;let reply:ProgressReply=try await client.request("/remote/v1/progress",body:JSONEncoder().encode(ProgressOperation(operation:"read",selection:.init(kind:item.kind,contentID:id,season:item.kind=="movie" ? nil:1,episode:item.kind=="movie" ? nil:1))));savedProgress=reply.entry
                 };applySavedSelection()
@@ -78,9 +108,9 @@ struct RemoteDetailView:View {
     }
     private func play(){guard !busy,!loadingDetails,let id=Int(item.id)else{return};let season=item.kind=="movie" ? nil:(item.kind=="anime" ? 1:activeSeason),episode=item.kind=="movie" ? nil:episode
         if destination=="phone"{playerPresentation = .init(selection:.init(kind:item.kind,contentID:id,season:season,episode:episode),phone:true,position:resumePosition);return}
-        busy=true;error=nil;Task{defer{busy=false};do{let result=try await client.play(item,season:season,episode:episode,seconds:progressSupported ? resumePosition:nil);guard result.ok,result.status.state=="playing"else{throw RemoteFailure(message:"Mac did not confirm playback.")};playerPresentation = .init(selection:.init(kind:item.kind,contentID:id,season:season,episode:episode),phone:false,position:resumePosition)}catch{self.error=error.localizedDescription}}
+        busy=true;error=nil;Task{defer{busy=false};do{let result=try await client.play(item,season:season,episode:episode,seconds:progressSupported ? resumePosition:nil);guard result.ok,result.status.state=="playing"else{throw RemoteFailure(message:"Mac did not confirm playback.")};session.status=result.status;session.phoneActive=false;if destination=="tv"{guard let receiver=selectedReceiver else{throw RemoteFailure(message:"Choose a TV first.")};try await session.switchOutput(client,to:"tv",receiverID:receiver.id)};playerPresentation = .init(selection:.init(kind:item.kind,contentID:id,season:season,episode:episode),phone:false,position:resumePosition)}catch{self.error=error.localizedDescription}}
     }
-    private func download(quality:String?){busy=true;error=nil;Task{defer{busy=false};do{let result=try await client.download(item,season:item.kind=="movie" ? nil:activeSeason,episode:episode,quality:quality);message=result.ok ? "Queued on Mac":"Download was not queued"}catch{self.error=error.localizedDescription}}}
+    private func download(quality:String?){guard !busy,downloadStateSupported,!checkingDownload,!downloadCheckFailed,downloadState?.active != true,downloadState?.playable != true else{return};busy=true;error=nil;Task{defer{busy=false};do{let result=try await client.download(item,season:item.kind=="movie" ? nil:activeSeason,episode:episode,quality:quality);await refreshDownloadState();message=result.ok ? nil:"Download was not queued"}catch{self.error=error.localizedDescription}}}
 }
 private struct DetailEpisode:Identifiable{var id:Int{number};let number:Int;let title:String}
 private struct TitleFacts:View {

@@ -64,6 +64,16 @@ Phone media is accessed through expiring, owner-bound opaque handles. The phone 
 
 Transfers use caller-known transaction IDs with prepare, commit, native/origin confirmation, status reconciliation and cancellation. Native readiness, media identity, transfer tickets and receiver session identity are checked before stopping the origin. The iOS shared session retains ownership across screens and rejects stale polling results. Progress is saved in the existing account-scoped canonical store with session/sequence protection against stale writes.
 
+## Download library and playback
+
+The companion download library shows the Mac's canonical movie/episode identity, available artwork, state, progress and known file sizes. Play checks the saved record/file again before opening the normal iPhone, Mac or TV flow. Existing verified local media is preferred by the shared source resolver. Missing or unbound files require retry/relinking rather than being labelled ready.
+
+Queue admission is serialized and checks persisted exact movie/episode identities. An active job or a verified completed file is reused, including repeated requests after relaunch; different episodes and specials remain separate. A failed/missing-file retry creates a separate output and does not overwrite completed media.
+
+Cancel stops an active job; partial video output may be discarded. Cancelling a manga collection keeps verified cached chapter pages for retry. Remove from download list removes its record, keeps completed media, and clears any resumable manga page cache; confirmation explains that this is not viewing-history removal or saved-file deletion. An explicit action intent prevents a stale cancellation/removal confirmation from changing meaning.
+
+These features require the matching build-41 Mac bridge and iOS companion. Existing pairing, scoped permissions and the Mac silent-playback policy stay in place.
+
 ## Distribution status
 
 This fork is public source. As checked on 17 October 2026, the fork has no GitHub release assets containing these changes. Upstream release links in the general README refer to upstream builds and do not include this branch's companion/bridge work.

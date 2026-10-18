@@ -52,8 +52,8 @@ export function installRemoteBridge({audioLocked = false, mediaOrigin, handleTru
   }
   local('flyx:remote-transport-start',()=>startTransport(true));
   local('flyx:remote-transport-stop',()=>stopTransport(true));
-  const downloads=createDownloads(spec=>request('downloads',spec));
   const catalog=createCatalog(path=>request('catalog',{path}));
+  const downloads=createDownloads(spec=>request('downloads',spec),catalog);
   const watchlist=createWatchlist(spec=>request('watchlist',spec),catalog);
   const manga=createManga(spec=>request('manga',spec));
   const phoneMedia=mediaOrigin?createPhoneMedia(spec=>request('phoneMedia',spec),{origin:mediaOrigin}):undefined;

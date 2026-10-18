@@ -25,9 +25,16 @@ export async function DELETE(
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
 
-  const active =
-    job.status === "queued" || job.status === "downloading" || job.status === "processing";
-  if (active) {
+  const body = await _request.json().catch(() => ({}));
+  const intent = body?.intent;
+  if (intent !== undefined && !["cancel", "remove-history"].includes(intent))
+    return NextResponse.json({ ok: false, error: "Invalid download action" }, { status: 400 });
+  // A stale confirmation must never turn cancellation into removal, or vice versa.
+  const current = getJob(id);
+  const stillActive = current && ["queued", "downloading", "processing"].includes(current.status);
+  if (!current || (intent === "cancel" && !stillActive) || (intent === "remove-history" && stillActive))
+    return NextResponse.json({ ok: false, error: "Download changed. Refresh and choose the action again." }, { status: 409 });
+  if (stillActive) {
     cancelJob(id);
   } else {
     try {
