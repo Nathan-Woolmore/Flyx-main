@@ -139,14 +139,39 @@ private struct MovieTrailerSection:View {
     var body:some View {if valid{VStack(alignment:.leading,spacing:12){
         Text("Trailer").font(.headline)
         if opened && !failed{YouTubeTrailerPlayer(videoID:trailer.videoID,failed:$failed).frame(minHeight:220).aspectRatio(16/9,contentMode:.fit)}
-        else if !failed{Button{opened=true}label:{ZStack{
-            AsyncImage(url:URL(string:"https://i.ytimg.com/vi/\(trailer.videoID)/hqdefault.jpg")){image in image.resizable().scaledToFill()}placeholder:{Rectangle().fill(.quaternary)}.frame(height:220).clipped()
-            Label("Watch trailer on this iPhone",systemImage:"play.circle.fill").font(.headline).padding(12).background(.black.opacity(0.8),in:.capsule)
-        }}.buttonStyle(.plain).accessibilityLabel("Watch trailer on this iPhone")}
-        if failed{Text("This trailer could not play here. Open it on YouTube.").font(.subheadline).foregroundStyle(.secondary)}
-        Link("Open in YouTube",destination:watchURL).font(.subheadline)
+        else if !failed{TrailerPreviewCard(videoID:trailer.videoID){opened=true}}
+        if failed{Text("This trailer could not play here.").font(.subheadline).foregroundStyle(.secondary);Link("Open in YouTube",destination:watchURL).font(.subheadline)}
     }}}
 }
+private struct TrailerPreviewCard:View {
+    let videoID:String
+    let play:()->Void
+    var body:some View {Button(action:play){ZStack{
+        GeometryReader{geometry in artwork.frame(width:geometry.size.width,height:geometry.size.height).clipped()}
+        playGlyph
+    }.aspectRatio(16/9,contentMode:.fit).background(.black).clipShape(.rect(cornerRadius:24))}
+        .buttonStyle(.plain).accessibilityLabel("Play trailer")}
+    @ViewBuilder private var artwork:some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("trailer-glass49"){
+            ZStack{LinearGradient(colors:[.indigo,.orange,.teal],startPoint:.topLeading,endPoint:.bottomTrailing);Circle().fill(.white.opacity(0.5)).frame(width:90,height:90).offset(x:90,y:-40);Rectangle().fill(.black.opacity(0.4)).rotationEffect(.degrees(-25)).offset(y:100)}
+        }else{thumbnail}
+        #else
+        thumbnail
+        #endif
+    }
+    private var thumbnail:some View {AsyncImage(url:URL(string:"https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg")){image in image.resizable().scaledToFill()}placeholder:{Rectangle().fill(.quaternary)}}
+    private var glyph:some View {Image(systemName:"play.fill").font(.system(size:25,weight:.semibold)).foregroundStyle(.white).offset(x:2).frame(width:64,height:64)}
+    @ViewBuilder private var playGlyph:some View {
+        if #available(iOS 26,*){glyph.glassEffect(.regular.tint(.black.opacity(0.2)).interactive(),in:.circle)}
+        else{glyph.background(.ultraThinMaterial,in:.circle).overlay{Circle().strokeBorder(.white.opacity(0.3),lineWidth:0.75)}}
+    }
+}
+#if DEBUG
+struct TrailerPreviewFixture:View {
+    var body:some View {ScrollView{VStack(alignment:.leading,spacing:24){Text("Overview").font(.headline);Text("A synthetic scene for previewing the trailer card.").foregroundStyle(.secondary);MovieTrailerSection(trailer:.init(videoID:"AAAAAAAAAAA",title:"Synthetic trailer"))}.padding(24)}.background(.black)}
+}
+#endif
 private struct YouTubeTrailerPlayer:UIViewRepresentable {
     let videoID:String
     @Binding var failed:Bool
