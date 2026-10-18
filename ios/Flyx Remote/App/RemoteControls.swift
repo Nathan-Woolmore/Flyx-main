@@ -7,6 +7,7 @@ struct RemoteCastState: Decodable {let isConnected:Bool;let isCasting:Bool;let d
 struct RemoteCastResult: Decodable {let ok:Bool;let devices:[RemoteCastDevice]?;let castState:RemoteCastState?}
 struct RemoteDownload: Decodable,Equatable,Identifiable {
  let id:String;let label:String;let status:String;let progress:Double;let bytes:Int64;let canRetry:Bool;let error:String?
+ var canTrash:Bool?;var fileRevision:String?
  var kind:String?;var totalBytes:Int64?;var quality:String?;var selection:PhonePlaybackSelection?;var localPlaybackAvailable:Bool?;var removalClearsCache:Bool?;var title:RemoteTitle?
  var active:Bool{["queued","downloading","processing"].contains(status)}
  var playable:Bool{status=="done" && localPlaybackAvailable==true && selection != nil}
@@ -16,7 +17,7 @@ struct RemoteDownload: Decodable,Equatable,Identifiable {
 }
 struct RemoteDownloadList: Decodable {let jobs:[RemoteDownload]}
 struct RemoteOK:Decodable {let ok:Bool}
-struct DownloadOperation:Encodable {let operation:String;let id:String}
+struct DownloadOperation:Encodable {let operation:String;let id:String;var revision:String?=nil}
 struct VideoDownload:Encodable {let kind="video";let tmdbId:Int;let mediaType:String;let malId:Int?;let season:Int?;let episode:Int?;let title:String;var quality:String?=nil}
 struct QueueDownload:Encodable {let operation="queue";let item:VideoDownload}
 extension RemoteClient {
@@ -49,7 +50,8 @@ struct RemoteDownloadsView:View {
  @State private var loaded=false
  @State private var busy=false
  @State private var refreshGeneration=0
- @State private var pendingRemoval:RemoteDownload?
+ @State private var pendingCancellation:RemoteDownload?
+ @State private var pendingTrash:RemoteDownload?
  @State private var castJob:RemoteDownload?
  @State private var presentation:PlayerPresentation?
  @State private var playingItem:RemoteTitle?
@@ -59,7 +61,7 @@ struct RemoteDownloadsView:View {
    RemotePoster(item:job.displayTitle).frame(width:92,height:138).clipShape(.rect(cornerRadius:12))
    VStack(alignment:.leading,spacing:8){
     HStack(alignment:.top){Text(job.displayTitle.title).font(.headline).lineLimit(2).frame(height:44,alignment:.topLeading);Spacer(minLength:0)
-     if client.scopes.contains("downloads.write"){Menu{if job.canRetry{Button("Retry download"){mutate("retry",job:job)}};Button(job.active ? "Cancel download…":"Remove from download list…",role:.destructive){pendingRemoval=job}}label:{Image(systemName:"ellipsis").frame(width:44,height:32)}.accessibilityLabel("Download actions for \(job.displayTitle.title)").disabled(busy)}
+     if client.scopes.contains("downloads.write"),(job.active || job.canRetry || job.canTrash==true){Menu{if job.canTrash==true{Button("Delete download…",role:.destructive){pendingTrash=job}};if job.canRetry{Button("Retry download"){mutate("retry",job:job)}};if job.active{Button("Cancel download…",role:.destructive){pendingCancellation=job}}}label:{Image(systemName:"ellipsis").frame(width:44,height:32)}.accessibilityLabel("Download actions for \(job.displayTitle.title)").disabled(busy)}
     }
     if let episode=job.episodeLabel{Text(episode).font(.subheadline).foregroundStyle(.secondary)}
     Text(job.stateLabel).font(.caption.weight(.semibold)).foregroundStyle(job.status=="error" ? .orange:.secondary)
@@ -75,15 +77,19 @@ struct RemoteDownloadsView:View {
   if jobs.isEmpty{if loaded{ContentUnavailableView("No downloads",systemImage:"arrow.down.circle",description:Text("Download a title from Browse to keep a copy on your Mac."))}else{ForEach(0..<3,id:\.self){_ in HStack(spacing:16){RoundedRectangle(cornerRadius:12).fill(.quaternary).frame(width:92,height:138);VStack(alignment:.leading,spacing:12){RoundedRectangle(cornerRadius:4).fill(.quaternary).frame(height:18);RoundedRectangle(cornerRadius:4).fill(.quaternary).frame(width:100,height:12);RoundedRectangle(cornerRadius:4).fill(.quaternary).frame(width:130,height:12)};Spacer()}.padding(16).background(FlyxTheme.card,in:.rect(cornerRadius:20))}.loadingShimmer().accessibilityLabel("Loading downloads")}}
  }.padding(16)}.background(.black).navigationTitle("Downloads").refreshable{await refresh()}
  .task{while !Task.isCancelled{await refresh();do{try await Task.sleep(for:.seconds(5))}catch{return}}}
- .confirmationDialog(pendingRemoval?.active==true ? "Cancel this download?":"Remove this download record?",isPresented:Binding(get:{pendingRemoval != nil},set:{if !$0{pendingRemoval=nil}}),titleVisibility:.visible){
-  if let job=pendingRemoval{Button(job.active ? "Cancel download":"Remove from download list",role:.destructive){mutate(job.active ? "cancel":"removeHistory",job:job);pendingRemoval=nil}}
-  Button("Keep download",role:.cancel){pendingRemoval=nil}
- }message:{if let job=pendingRemoval{Text(job.active ? (job.removalClearsCache==true ? "Stops the download and keeps downloaded chapter pages for retry. Completed files are kept.":"Stops this download. Incomplete video data may be discarded; completed files are kept."):"Removes the download record, not viewing history. The saved file stays on your Mac but will no longer be available from this list."+(job.removalClearsCache==true ? " Resumable manga page cache is also cleared.":""))}}
+ .confirmationDialog("Delete this download?",isPresented:Binding(get:{pendingTrash != nil},set:{if !$0{pendingTrash=nil}}),titleVisibility:.visible){
+  if let job=pendingTrash{Button("Move to Mac Trash",role:.destructive){mutate("trash",job:job);pendingTrash=nil}}
+  Button("Keep download",role:.cancel){pendingTrash=nil}
+ }message:{Text("Moves the saved file to Trash on your Mac and removes this download from the list. You can recover the file from Mac Trash.")}
+ .confirmationDialog("Cancel this download?",isPresented:Binding(get:{pendingCancellation != nil},set:{if !$0{pendingCancellation=nil}}),titleVisibility:.visible){
+  if let job=pendingCancellation{Button("Cancel download",role:.destructive){mutate("cancel",job:job);pendingCancellation=nil}}
+  Button("Keep download",role:.cancel){pendingCancellation=nil}
+ }message:{if let job=pendingCancellation{Text(job.removalClearsCache==true ? "Stops the download and keeps downloaded chapter pages for retry. Completed files are kept.":"Stops this download. Incomplete video data may be discarded; completed files are kept.")}}
  .sheet(item:$castJob){job in CastReceiverPicker(client:client){receiver in castJob=nil;play(job,to:"tv",receiverID:receiver.id)}}
  .fullScreenCover(item:$presentation){value in RemoteControlView(client:client,initialSelection:value.selection,initialItem:playingItem,startsOnPhone:value.phone,showClose:true).environment(\.playbackSession,session)}
  }}
  private func refresh()async{refreshGeneration+=1;let generation=refreshGeneration;do{let result:RemoteDownloadList=try await client.request("/remote/v1/downloads");try Task.checkCancellation();guard generation==refreshGeneration else{return};if jobs != result.jobs{jobs=result.jobs};loaded=true;error=nil}catch{if !Task.isCancelled,generation==refreshGeneration{loaded=true;self.error=error.localizedDescription}}}
- private func mutate(_ operation:String,job:RemoteDownload){guard !busy else{return};busy=true;Task{defer{busy=false};do{let _:RemoteOK=try await client.request("/remote/v1/downloads",body:JSONEncoder().encode(DownloadOperation(operation:operation,id:job.id)));await refresh()}catch{await refresh();self.error="The download may have changed. Refresh before trying again."}}}
+ private func mutate(_ operation:String,job:RemoteDownload){guard !busy else{return};busy=true;Task{defer{busy=false};do{let _:RemoteOK=try await client.request("/remote/v1/downloads",body:JSONEncoder().encode(DownloadOperation(operation:operation,id:job.id,revision:operation=="trash" ? job.fileRevision:nil)));await refresh()}catch{await refresh();self.error=error.localizedDescription}}}
  private func retryVideo(_ job:RemoteDownload){guard !busy,let selection=job.selection else{return};busy=true;Task{defer{busy=false};do{let _:RemoteOK=try await client.download(job.displayTitle,season:selection.season,episode:selection.episode,quality:job.quality);await refresh()}catch{self.error=error.localizedDescription}}}
  private func play(_ job:RemoteDownload,to destination:String,receiverID:String?=nil){guard !busy,let selection=job.selection else{return};busy=true;error=nil;Task{defer{busy=false};do{
   let current:RemoteDownloadList=try await client.request("/remote/v1/downloads");jobs=current.jobs

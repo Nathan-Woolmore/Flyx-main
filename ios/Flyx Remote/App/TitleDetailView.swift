@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 struct RemoteDetailView:View {
     let client:RemoteClient
@@ -52,6 +53,7 @@ struct RemoteDetailView:View {
             if let watchlist{HStack(spacing:10){WatchlistSaveButton(item:item,model:watchlist,client:client);Text(watchlist.contains(item) ? "Saved on Mac":"Save to Mac watchlist").font(.subheadline)};if !watchlist.canWrite{Text("Allow watchlist saving in Flyx on Mac.").font(.caption).foregroundStyle(.secondary)}}
             let overview=details?.overview ?? item.overview
             if !overview.isEmpty{VStack(alignment:.leading,spacing:10){Text("Overview").font(.headline);Text(overview).font(.body).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)}}
+            if item.kind=="movie",let trailer=details?.trailer{MovieTrailerSection(trailer:trailer)}
             if let metadata=details?.metadata,!metadata.isEmpty{TitleInformation(rows:metadata)}
             if loadingDetails{VStack(spacing:12){ForEach(0..<3,id:\.self){_ in RoundedRectangle(cornerRadius:8).fill(.quaternary).frame(height:44)}}.loadingShimmer().accessibilityLabel("Loading title details")}
             if let message{Text(message).font(.footnote).foregroundStyle(FlyxTheme.accent)}
@@ -124,4 +126,53 @@ struct TitleInformation:View {
 private struct MangaChapterSection:View {
     let client:RemoteClient;let item:RemoteTitle;let chapters:[RemoteDetails.Chapter]
     var body:some View{if !chapters.isEmpty{VStack(alignment:.leading,spacing:16){NavigationLink("Read / Continue",destination:MangaReader(client:client,item:item,chapters:chapters)).buttonStyle(.borderedProminent).foregroundStyle(FlyxTheme.ink);DisclosureGroup("Chapters (\(chapters.count))"){ForEach(chapters){chapter in NavigationLink("\(chapter.number.formatted()). \(chapter.title)",destination:MangaReader(client:client,item:item,chapters:chapters,startingChapter:chapter.id))}}}}else{Text("No chapters are available from this provider yet.").foregroundStyle(.secondary)}}
+}
+
+
+/// Independent of the movie output selector. Only the official YouTube player handles media.
+private struct MovieTrailerSection:View {
+    let trailer:RemoteDetails.Trailer
+    @State private var opened=false
+    @State private var failed=false
+    private var valid:Bool{trailer.videoID.range(of:"^[A-Za-z0-9_-]{11}$",options:.regularExpression) != nil}
+    private var watchURL:URL{URL(string:"https://www.youtube.com/watch?v=\(trailer.videoID)")!}
+    var body:some View {if valid{VStack(alignment:.leading,spacing:12){
+        Text("Trailer").font(.headline)
+        if opened && !failed{YouTubeTrailerPlayer(videoID:trailer.videoID,failed:$failed).frame(minHeight:220).aspectRatio(16/9,contentMode:.fit)}
+        else if !failed{Button{opened=true}label:{ZStack{
+            AsyncImage(url:URL(string:"https://i.ytimg.com/vi/\(trailer.videoID)/hqdefault.jpg")){image in image.resizable().scaledToFill()}placeholder:{Rectangle().fill(.quaternary)}.frame(height:220).clipped()
+            Label("Watch trailer on this iPhone",systemImage:"play.circle.fill").font(.headline).padding(12).background(.black.opacity(0.8),in:.capsule)
+        }}.buttonStyle(.plain).accessibilityLabel("Watch trailer on this iPhone")}
+        if failed{Text("This trailer could not play here. Open it on YouTube.").font(.subheadline).foregroundStyle(.secondary)}
+        Link("Open in YouTube",destination:watchURL).font(.subheadline)
+    }}}
+}
+private struct YouTubeTrailerPlayer:UIViewRepresentable {
+    let videoID:String
+    @Binding var failed:Bool
+    func makeCoordinator()->Coordinator{Coordinator(failed:$failed)}
+    func makeUIView(context:Context)->WKWebView{
+        let configuration=WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback=true
+        configuration.allowsAirPlayForMediaPlayback=false
+        configuration.mediaTypesRequiringUserActionForPlayback = .all
+        configuration.userContentController.add(context.coordinator,name:"trailerError")
+        let web=WKWebView(frame:.zero,configuration:configuration)
+        web.navigationDelegate=context.coordinator
+        let identity="https://"+(Bundle.main.bundleIdentifier ?? "local.flyx.remote").lowercased()
+        let html="""
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="strict-origin-when-cross-origin"><style>html,body,#player{margin:0;width:100%;height:100%;background:#000}</style></head><body><div id="player"></div><script src="https://www.youtube.com/iframe_api"></script><script>function onYouTubeIframeAPIReady(){new YT.Player('player',{videoId:'\(videoID)',playerVars:{autoplay:0,playsinline:1,controls:1,origin:'\(identity)'},events:{onError:function(){window.webkit.messageHandlers.trailerError.postMessage('failed')}}});}</script></body></html>
+        """
+        web.loadHTMLString(html,baseURL:URL(string:identity))
+        return web
+    }
+    func updateUIView(_ uiView:WKWebView,context:Context){}
+    static func dismantleUIView(_ uiView:WKWebView,coordinator:Coordinator){uiView.stopLoading();uiView.configuration.userContentController.removeScriptMessageHandler(forName:"trailerError");uiView.navigationDelegate=nil;uiView.loadHTMLString("",baseURL:nil)}
+    final class Coordinator:NSObject,WKNavigationDelegate,WKScriptMessageHandler{
+        private var failed:Binding<Bool>
+        init(failed:Binding<Bool>){self.failed=failed}
+        func userContentController(_ userContentController:WKUserContentController,didReceive message:WKScriptMessage){failed.wrappedValue=true}
+        func webView(_ webView:WKWebView,didFail navigation:WKNavigation!,withError error:Error){failed.wrappedValue=true}
+        func webView(_ webView:WKWebView,didFailProvisionalNavigation navigation:WKNavigation!,withError error:Error){failed.wrappedValue=true}
+    }
 }

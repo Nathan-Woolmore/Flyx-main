@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/get-session";
-import { cancelJob, getJob, removeJobWithCache } from "@/lib/downloads/manager";
+import { cancelJob, getJob, removeJobWithCache, trashJob } from "@/lib/downloads/manager";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,4 +45,12 @@ export async function DELETE(
   }
 
   return NextResponse.json({ ok: true });
+}
+
+
+export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){
+ const session=await getSession();if(!session?.isAdmin)return NextResponse.json({ok:false},{status:403});
+ const body=await request.json().catch(()=>null);if(body?.intent!=="trash")return NextResponse.json({ok:false},{status:400});
+ try{await trashJob((await params).id,body.revision);return NextResponse.json({ok:true});}
+ catch(error){const code=(error as Error).message;return NextResponse.json({ok:false,code:code.startsWith("DOWNLOAD_")?code:"DOWNLOAD_TRASH_FAILED"},{status:409});}
 }

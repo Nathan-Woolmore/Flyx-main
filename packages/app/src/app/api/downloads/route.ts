@@ -120,7 +120,7 @@ export async function GET() {
       const localPlaybackAvailable = file !== null;
       const fileBytes = file?.size;
       await file?.handle.close();
-      return { ...visible, localPlaybackAvailable, ...(fileBytes ? { fileBytes } : {}) };
+      return { ...visible, canTrash:process.platform==="darwin" && process.env.FLYX_DESKTOP==="true" && visible.status==="done" && /^[a-f0-9]{64}$/.test(visible.fileRevision ?? ""), localPlaybackAvailable, ...(fileBytes ? { fileBytes } : {}) };
     })),
   });
 }

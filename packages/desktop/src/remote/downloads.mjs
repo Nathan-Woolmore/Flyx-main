@@ -1,5 +1,6 @@
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 export function downloadRequest(operation,body={}) {
+ if(operation==='trash'){if(!uuid(body.id)||typeof body.revision!=='string'||!/^[a-f0-9]{64}$/.test(body.revision))throw new Error('Invalid download confirmation');return{path:`/api/downloads/${body.id}`,method:'POST',body:{intent:'trash',revision:body.revision}};}
  if(operation==='list')return {path:'/api/downloads',method:'GET'};
  if(['remove','retry','cancel','removeHistory'].includes(operation)) {if(!uuid(body.id))throw new Error('Invalid job');return{path:`/api/downloads/${body.id}${operation==='retry'?'/retry':''}`,method:operation==='retry'?'POST':'DELETE',...(['cancel','removeHistory'].includes(operation)?{body:{intent:operation==='cancel'?'cancel':'remove-history'}}:{})};}
  if(operation!=='queue')throw new Error('Unsupported download operation');
@@ -20,7 +21,7 @@ export function downloadSelection(j) {
 }
 export function publicJobs(body) {
  if(!body.ok||!Array.isArray(body.jobs))throw new Error('Downloads unavailable');
- return{jobs:body.jobs.map(j=>({id:j.id,label:String(j.label??'Download').slice(0,300),kind:j.kind,status:j.status,progress:Number.isFinite(j.progress)?Math.min(100,Math.max(0,j.progress)):0,bytes:Number.isFinite(j.bytes)?Math.max(0,j.bytes):0,totalBytes:Number.isFinite(j.totalBytes)&&j.totalBytes>0?j.totalBytes:null,quality:typeof j.quality==='string'?j.quality.slice(0,30):null,selection:downloadSelection(j),localPlaybackAvailable:j.status==='done'&&j.localPlaybackAvailable===true,canRetry:j.kind==='manga'&&!!j.collection&&['error','cancelled'].includes(j.status),removalClearsCache:!!j.collection,createdAt:Number.isFinite(j.createdAt)?j.createdAt:null,error:j.error?'Download failed. Retry from this title or see Flyx for details.':null}))};
+ return{jobs:body.jobs.map(j=>({id:j.id,canTrash:j.canTrash===true,fileRevision:typeof j.fileRevision==='string'&&/^[a-f0-9]{64}$/.test(j.fileRevision)?j.fileRevision:null,label:String(j.label??'Download').slice(0,300),kind:j.kind,status:j.status,progress:Number.isFinite(j.progress)?Math.min(100,Math.max(0,j.progress)):0,bytes:Number.isFinite(j.bytes)?Math.max(0,j.bytes):0,totalBytes:Number.isFinite(j.totalBytes)&&j.totalBytes>0?j.totalBytes:null,quality:typeof j.quality==='string'?j.quality.slice(0,30):null,selection:downloadSelection(j),localPlaybackAvailable:j.status==='done'&&j.localPlaybackAvailable===true,canRetry:j.kind==='manga'&&!!j.collection&&['error','cancelled'].includes(j.status),removalClearsCache:!!j.collection,createdAt:Number.isFinite(j.createdAt)?j.createdAt:null,error:j.error?'Download failed. Retry from this title or see Flyx for details.':null}))};
 }
 export function createDownloads(request,catalog,{metadataBudgetMs=250}={}) {
  const cache=new Map();let inFlight=0;
@@ -30,7 +31,7 @@ export function createDownloads(request,catalog,{metadataBudgetMs=250}={}) {
  });
  return async(operation,body)=>{
   const spec=downloadRequest(operation,body);const response=await request(spec);
-  if(!response.ok)throw new Error('Download operation failed');
+  if(!response.ok)throw Object.assign(new Error('Download operation failed'),{code:response.code});
   if(operation!=='list')return{ok:true};
   const result=publicJobs(response),pending=[];
   if(catalog)for(const job of result.jobs){

@@ -11,6 +11,8 @@ import {
   type LocalPlaybackIdentity,
 } from "./local-identity";
 
+const gates=globalThis as typeof globalThis & {__flyxTrashing?:Set<string>};
+export const trashingDownloads=gates.__flyxTrashing ??= new Set<string>();
 export function localFileRevision(stat: BigIntStats): string {
   return createHash("sha256")
     .update([stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":"))
@@ -26,7 +28,7 @@ export async function openLocalDownload(
   revision?: string,
 ): Promise<{ handle: FileHandle; size: number; revision: string } | null> {
   if (
-    !job ||
+    !job || trashingDownloads.has(job.id) ||
     !watchUrlForDownload(job) ||
     !job.filepath ||
     ![".mp4", ".m4v"].includes(path.extname(job.filepath).toLowerCase())
@@ -50,7 +52,9 @@ export async function openLocalDownload(
     if (localIdentityKey(other as LocalPlaybackIdentity) !== key) return null;
   }
   if (revision && revision !== job.fileRevision) return null;
-  return openDownloadFile(root, file, job.fileRevision);
+  const opened=await openDownloadFile(root,file,job.fileRevision);
+  if(trashingDownloads.has(job.id)){await opened?.handle.close();return null;}
+  return opened;
 }
 
 /** Open just one explicitly recorded/selected file; callers must authorize the record separately. */

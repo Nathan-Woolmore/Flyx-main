@@ -137,7 +137,7 @@ private struct HomeFeaturedCard:View {
     var body:some View {
         ZStack(alignment:.bottomLeading){
             HomeArtwork(item:entry.title,backdrop:true)
-            LinearGradient(stops:[.init(color:.black.opacity(0.05),location:0),.init(color:.black.opacity(0.45),location:0.35),.init(color:.black.opacity(0.96),location:1)],startPoint:.top,endPoint:.bottom)
+            LinearGradient(stops:[.init(color:.black.opacity(0.05),location:0),.init(color:.black.opacity(0.45),location:0.35),.init(color:.black,location:1)],startPoint:.top,endPoint:.bottom)
             VStack(alignment:.leading,spacing:10){
                 Text("FEATURED · \(homeKind(entry.title.kind).uppercased())").font(.caption.weight(.bold)).tracking(1).foregroundStyle(FlyxTheme.accent)
                 Text(entry.title.title).font(.title.bold()).lineLimit(2)
@@ -145,7 +145,8 @@ private struct HomeFeaturedCard:View {
                 if !entry.title.overview.isEmpty{Text(entry.title.overview).font(.subheadline).foregroundStyle(.white.opacity(0.8)).lineLimit(2)}
                 NavigationLink(value:entry.title){Label(entry.title.kind=="manga" ? "Explore manga":"View details",systemImage:"arrow.up.right").font(.subheadline.bold()).padding(.horizontal,18).frame(minHeight:46).foregroundStyle(FlyxTheme.ink).background(FlyxTheme.accent,in:.capsule)}.buttonStyle(.plain)
             }.padding(20)
-        }.frame(height:360).clipShape(.rect(cornerRadius:24))
+        }.frame(height:360).background(.black).compositingGroup()
+            .clipShape(RoundedRectangle(cornerRadius:24,style:.continuous),style:FillStyle(antialiased:true))
             .overlay(alignment:.topTrailing){WatchlistSaveButton(item:entry.title,model:watchlist,client:client).padding(12)}
     }
 }
@@ -205,7 +206,11 @@ private struct HomeArtwork:View {
             else if phase.error != nil || item.posterURL==nil{ZStack{FlyxTheme.card;Image(systemName:item.kind=="manga" ? "book.closed":"film").font(.largeTitle).foregroundStyle(.secondary)}.frame(width:geometry.size.width,height:geometry.size.height)}
             else{Rectangle().fill(.white.opacity(0.06)).loadingShimmer()}
         }.transaction{$0.animation=nil}
-    }.accessibilityHidden(true)}
+    }
+    #if DEBUG
+    .overlay{if ProcessInfo.processInfo.arguments.contains("home-edge48"){FlyxTheme.accent}}
+    #endif
+    .accessibilityHidden(true)}
 }
 
 private struct HomeFeedSkeleton:View {

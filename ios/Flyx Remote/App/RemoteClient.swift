@@ -14,6 +14,8 @@ struct RemoteTitle: Codable, Identifiable, Hashable, Sendable {
 }
 struct CatalogPage: Decodable, Sendable { let items: [RemoteTitle]; let nextPage: Int? }
 struct RemoteDetails: Decodable, Sendable {
+    struct Trailer:Decodable,Sendable {let videoID:String;let title:String}
+    var trailer:Trailer?
     struct Chapter:Codable,Hashable,Identifiable,Sendable {let id:String;let number:Double;let title:String;let language:String;let edition:String}
     struct Metadata:Decodable,Identifiable,Sendable {var id:String{label};let label:String;let value:String}
     struct Season: Decodable, Sendable { struct Episode: Decodable, Identifiable, Sendable { var id: Int { number }; let number: Int; let title: String }; let number: Int; let episodes: [Episode] }

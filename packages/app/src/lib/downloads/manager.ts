@@ -10,9 +10,10 @@
  */
 
 import fs from "node:fs";
+import { trashManagedDownload } from "./trash-file";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { localFileRevision, openLocalDownload } from "./local-files";
+import { localFileRevision, openLocalDownload, trashingDownloads } from "./local-files";
 import { downloadIdentity, localIdentityKey } from "./local-identity";
 import {
   assertRelinkUnambiguous,
@@ -330,7 +331,7 @@ async function runJobInner(id: string): Promise<void> {
         filepath: dest,
         error: undefined,
         fileRevision:
-          job.kind === "video" ? localFileRevision(fs.statSync(dest, { bigint: true })) : undefined,
+          localFileRevision(fs.statSync(dest, { bigint: true })),
       },
       { immediate: true },
     );
@@ -471,6 +472,27 @@ export async function removeJobWithCache(id: string): Promise<boolean> {
     }
     return removeJob(id);
   } finally { removing.delete(id); }
+}
+
+/** Keep the record until the native recoverable Trash operation is confirmed. */
+export async function trashJob(id:string,revision:unknown):Promise<void>{
+ init();const job=state.jobs.get(id),removing=state.removing ??= new Set<string>();
+ if(!job||removing.has(id)||state.controllers.has(id)||job.status!=="done")throw new Error("DOWNLOAD_CHANGED");
+ removing.add(id);trashingDownloads.add(id);
+ try{
+  await trashManagedDownload(job,listJobs(),getDownloadDir(),revision);
+  // Publish the new history atomically before dropping the in-memory record.
+  // If writing or renaming fails, the old history and record remain recoverable.
+  const temporary=HISTORY_PATH+".trash-"+randomUUID()+".tmp";
+  try{
+   fs.mkdirSync(HISTORY_DIR,{recursive:true});
+   fs.writeFileSync(temporary,JSON.stringify(listJobs().filter(value=>value.id!==id),null,2),{encoding:"utf8",flag:"wx"});
+   fs.renameSync(temporary,HISTORY_PATH);
+   state.jobs.delete(id);
+  }catch{
+   throw new Error("DOWNLOAD_HISTORY_FAILED");
+  }finally{try{fs.unlinkSync(temporary);}catch{/* only this operation's temporary history file */}}
+ }finally{removing.delete(id);trashingDownloads.delete(id);}
 }
 
 /** Reuses the exact chapter snapshot and verified cached pages. */

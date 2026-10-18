@@ -77,7 +77,7 @@ final class UIOnlyProtocol: URLProtocol, @unchecked Sendable {
    let generation=Self.state.lock.withLock{Self.state.chapterGeneration+=1;return Self.state.chapterGeneration}
    let handle=ProcessInfo.processInfo.arguments.contains("reader-expired") && generation==1 ? "synthetic-expired":"synthetic-reader-"+String(generation)
    body=["handle":handle,"pageCount":3,"provider":"weebcentral","mangaID":"synthetic-reader","chapterID":chapterID,"chapterNumber":chapterID.hasPrefix("0") ? 1:2.5,"language":"en","edition":"official"]
-  case "/remote/v1/info":body=["features":["phone.direct.mp4","phone.direct.hls"]+(ProcessInfo.processInfo.arguments.contains("home-footer46") ? ["catalog.home.v1"]:[])+(ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("details-progress")}) ? ["player.progress.v1"]:[])]
+  case "/remote/v1/info":body=["features":["phone.direct.mp4","phone.direct.hls"]+(ProcessInfo.processInfo.arguments.contains(where:{$0=="home-footer46" || $0=="home-edge48"}) ? ["catalog.home.v1"]:[])+(ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("details-progress")}) ? ["player.progress.v1"]:[])]
   case "/remote/v1/session":body=["deviceID":"fixture-phone","scopes":["catalog.read","playback.control","watchlist.write"],"expiresAt":9999999999999]
   case "/remote/v1/watchlist" where request.httpMethod == "POST":body=["ok":true]
   case "/remote/v1/home":body=["sections":[["id":"fixture-tv","kind":"tv","title":"Trending TV","subtitle":"Synthetic catalogue","source":"Fixture","ranked":false,"items":[["id":"tv:1","title":items[0]]],"stale":false]],"checkedAt":Date().timeIntervalSince1970*1000,"cached":false]

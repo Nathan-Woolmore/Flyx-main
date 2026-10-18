@@ -1,0 +1,18 @@
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {trashManagedDownload} from './trash-file';
+import {localFileRevision} from './local-files';
+import type {DownloadJob} from './types';
+let root:string,job:DownloadJob;
+beforeEach(async()=>{vi.stubEnv('FLYX_DESKTOP','true');root=await fs.mkdtemp(path.join(os.tmpdir(),'flyx-trash-fixture-'));const file=path.join(root,'fixture.mp4');await fs.writeFile(file,'synthetic fixture only');job={id:'11111111-1111-4111-8111-111111111111',kind:'video',status:'done',filepath:file,fileRevision:localFileRevision(await fs.stat(file,{bigint:true}))} as DownloadJob;});
+afterEach(async()=>{vi.unstubAllEnvs();await fs.rm(root,{recursive:true,force:true});});
+const runner=()=>vi.fn(async(command:string)=>{if(command.endsWith('/lsof'))throw Object.assign(new Error('no open file'),{code:1});return{stdout:'{"ok":true}',stderr:''};});
+it('invokes only native recoverable Trash after validation; paths stay arguments',async()=>{const run=runner();await trashManagedDownload(job,[job],root,job.fileRevision,run as never);expect(run.mock.calls.map(x=>x[0])).toEqual(['/usr/sbin/lsof','/usr/bin/osascript']);expect(await fs.readFile(job.filepath!,'utf8')).toBe('synthetic fixture only');});
+it('rejects stale confirmation without native operations',async()=>{const run=runner();await expect(trashManagedDownload(job,[job],root,'0'.repeat(64),run as never)).rejects.toThrow('DOWNLOAD_CHANGED');expect(run).not.toHaveBeenCalled();});
+it('rejects replaced contents even under the same filename',async()=>{await fs.writeFile(job.filepath!,'changed synthetic fixture');const run=runner();await expect(trashManagedDownload(job,[job],root,job.fileRevision,run as never)).rejects.toThrow('DOWNLOAD_CHANGED');expect(run).not.toHaveBeenCalled();});
+it('rejects symlinks and paths outside configured root',async()=>{const original=job.filepath!;const linked=path.join(root,'link.mp4');await fs.symlink(original,linked);job.filepath=linked;await expect(trashManagedDownload(job,[job],root,job.fileRevision,runner() as never)).rejects.toThrow('DOWNLOAD_CHANGED');job.filepath=original;await expect(trashManagedDownload(job,[job],path.join(root,'other'),job.fileRevision,runner() as never)).rejects.toThrow('DOWNLOAD_CHANGED');});
+it('keeps a missing file distinct',async()=>{await fs.rename(job.filepath!,path.join(root,'fixture-moved.mp4'));await expect(trashManagedDownload(job,[job],root,job.fileRevision,runner() as never)).rejects.toThrow('DOWNLOAD_MISSING');});
+it('refuses a file open in another process and never invokes Trash',async()=>{const run=vi.fn(async()=>({stdout:'123\n',stderr:''}));await expect(trashManagedDownload(job,[job],root,job.fileRevision,run as never)).rejects.toThrow('DOWNLOAD_IN_USE');expect(run).toHaveBeenCalledTimes(1);});
+it('reports native failure without changing file or record',async()=>{const run=vi.fn(async(command:string)=>{throw Object.assign(new Error('fixture failure'),{code:command.endsWith('lsof')?1:2});});await expect(trashManagedDownload(job,[job],root,job.fileRevision,run as never)).rejects.toThrow('DOWNLOAD_TRASH_FAILED');expect(job.status).toBe('done');expect(await fs.readFile(job.filepath!,'utf8')).toBe('synthetic fixture only');});

@@ -49,7 +49,7 @@ struct RemoteLibraryView: View {
         }}
     }
     private var catalogueHeader:some View {VStack(spacing:8){
-                    HStack(alignment:.firstTextBaseline){Text("Flyx").font(.title2.bold());Spacer();MacConnectionIndicator(client:client)}.frame(minHeight:36)
+                    HStack(alignment:.firstTextBaseline,spacing:10){Text("Flyx").font(.title2.bold()).foregroundStyle(FlyxTheme.accent);Text("Browse").font(.title2.bold());Spacer();MacConnectionIndicator(client:client)}.frame(minHeight:36)
                 GlassCategorySelector(selected:browser.request.kind){searchFocused=false;path.removeAll();browser.select($0)}
                 HStack {
                     Image(systemName:"magnifyingglass").foregroundStyle(.secondary)
