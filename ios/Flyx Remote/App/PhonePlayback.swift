@@ -4,7 +4,7 @@ import Observation
 
 struct PhonePlaybackSelection:Codable,Hashable,Identifiable,Sendable {let kind:String;let contentID:Int;let season:Int?;let episode:Int?;var id:String{"\(kind):\(contentID):\(season ?? 1):\(episode ?? 1)"}}
 struct PhoneMediaOperation:Encodable {let operation:String;var handle:String?;var offset:Int64?;var length:Int?;var position:Double?;var paused:Bool?;var selection:PhonePlaybackSelection?;var resourceID:String?;var range:String?;var sourceID:String?}
-struct PhoneMediaGrant:Decodable,Sendable {let handle:String;let title:String;let position:Double;let duration:Double;let paused:Bool;let format:String;var mode:String?;var currentSource:String?;var sources:[PhoneSource]?}
+struct PhoneMediaGrant:Decodable,Sendable {let handle:String;let title:String;let position:Double;let duration:Double;let paused:Bool;let format:String;var mode:String?;var currentSource:String?;var sources:[PhoneSource]?;var sourceInfo:PlaybackSourceInfo?}
 struct PhoneSource:Decodable,Identifiable,Sendable {let id:String;let provider:String;let quality:String;let language:String;let format:String;var label:String{[provider,quality,language.uppercased()].filter{!$0.isEmpty}.joined(separator:" · ")}}
 struct PhoneMediaChunk:Decodable,Sendable {let bytes:Data;let total:Int64;let offset:Int64}
 // AVFoundation request objects are confined to queue. Network tasks exchange
@@ -61,6 +61,7 @@ final class PairedMediaLoader:NSObject,AVAssetResourceLoaderDelegate,@unchecked 
     var ready=false
     var sources:[PhoneSource]{grant?.sources ?? []}
     var currentSource:String?{grant?.currentSource}
+    var sourceInfo:PlaybackSourceInfo?{grant?.sourceInfo}
     private var selection:PhonePlaybackSelection?
     @ObservationIgnored private var playbackTask:Task<Void,Never>?
     private var lastGoodPosition=0.0
@@ -173,7 +174,7 @@ final class PairedMediaLoader:NSObject,AVAssetResourceLoaderDelegate,@unchecked 
         closed=false;clearPlayer();busy=true;error=nil
         let ticket=UUID();generation=ticket
         defer{if generation==ticket{busy=false}}
-        grant=PhoneMediaGrant(handle:data.handle,title:title,position:data.position,duration:data.duration,paused:true,format:data.format,mode:"transfer")
+        grant=PhoneMediaGrant(handle:data.handle,title:title,position:data.position,duration:data.duration,paused:true,format:data.format,mode:"transfer",sourceInfo:data.sourceInfo)
         self.title=title
         let asset:AVURLAsset
         if data.format=="hls" {

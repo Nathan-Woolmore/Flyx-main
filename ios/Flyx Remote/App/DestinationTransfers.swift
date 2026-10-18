@@ -14,7 +14,7 @@ struct DestinationTransferOperation: Encodable, Sendable {
     var nativeReady:Bool?
 }
 struct DestinationTransferStatus:Decodable,Sendable {let identity:String;let position:Double;let paused:Bool;let output:String}
-struct DestinationTransferData:Decodable,Sendable {let handle:String;let format:String;let position:Double;let duration:Double;let paused:Bool}
+struct DestinationTransferData:Decodable,Sendable {let handle:String;let format:String;let position:Double;let duration:Double;let paused:Bool;var sourceInfo:PlaybackSourceInfo?}
 struct DestinationTransferResult:Decodable,Sendable {var id:String?;let phase:String;var status:DestinationTransferStatus?;var destinationData:DestinationTransferData?;var rollbackConfirmed:Bool?}
 
 /// UI-owned transaction lifetime. The ID exists before the first request so a

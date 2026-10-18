@@ -1,3 +1,4 @@
+import {playbackSourceInfo} from './source-info.mjs';
 // Uses the Mac extraction/VLC signing endpoint. Only the main process receives URLs.
 export async function resolvePhoneSources(selection,{fetcher=fetch,order=s=>s,recovery=s=>s}={}) {
  const providers=selection.kind==='anime'?['animex']:['vidsrc','vidlove','multiembed','videasy'];
@@ -10,7 +11,7 @@ export async function resolvePhoneSources(selection,{fetcher=fetch,order=s=>s,re
  const results=await Promise.all(providers.map(async provider=>{let value=await probe(provider,12000);if(!value.sources.length)value=await probe(provider,4000);return value;}));
  const key=source=>{try{const u=new URL(source.url);u.searchParams.delete('sig');u.searchParams.delete('exp');u.searchParams.sort();return u.href;}catch{return source.url;}};
  const groups=[local,...results];const seen=new Set();const sources=[];let rank=0;
- for(const group of groups){const available=group.sources.filter(s=>s.url&&!seen.has(key(s))&&seen.add(key(s)));const ranked=recovery(available);for(const source of (selection.kind==='anime'?order(available.filter(s=>/sub|ja|jp|japanese/i.test(s.language??''))).concat(order(available.filter(s=>!/sub|ja|jp|japanese/i.test(s.language??'')))):order(available))){sources.push({...source,recoveryRank:rank+ranked.indexOf(source)});}rank+=available.length;}
+ for(const group of groups){const available=group.sources.filter(s=>s.url&&!seen.has(key(s))&&seen.add(key(s)));const ranked=recovery(available);for(const source of (selection.kind==='anime'?order(available.filter(s=>/sub|ja|jp|japanese/i.test(s.language??''))).concat(order(available.filter(s=>!/sub|ja|jp|japanese/i.test(s.language??'')))):order(available))){sources.push({...source,sourceInfo:playbackSourceInfo(source,{identity:JSON.stringify([selection.kind,selection.contentID,selection.season??1,selection.episode??1])}),recoveryRank:rank+ranked.indexOf(source)});}rank+=available.length;}
  if(!sources.length)throw Object.assign(new Error('No source resolved'),{code:'PHONE_MEDIA_UNAVAILABLE'});
  return{...sources[0],sources,title:groups.find(g=>g.title)?.title??'Flyx'};
 }

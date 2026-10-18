@@ -42,6 +42,14 @@ struct PlayerPresentation:Identifiable {let id=UUID();let selection:PhonePlaybac
     private var duration:Double{let value=phoneActive ? phone.player.currentItem?.duration.seconds:status?.duration;return value?.isFinite==true ? max(0,value!):0}
     private var output:String{phoneActive ? "This iPhone":status?.outputName ?? "Mac"}
     private var outputSymbol:String{phoneActive ? "iphone":status?.output=="tv" ? "tv":"desktopcomputer"}
+    private var sourceInfo:PlaybackSourceInfo?{phoneActive ? phone.sourceInfo:status?.sourceInfo}
+    private var resolutionLabel:String {
+        let size=phoneActive ? phone.player.currentItem?.presentationSize:nil
+        let width=phoneActive ? size.map{Double($0.width)}:status?.videoWidth.map{Double($0)}
+        let height=phoneActive ? size.map{Double($0.height)}:status?.videoHeight.map{Double($0)}
+        guard let width,let height,width.isFinite,height.isFinite,width>0,height>0,width<=16384,height<=16384 else{return "Resolution unknown"}
+        return "\(Int(width)) × \(Int(height)) decoded"
+    }
     private var nowPlaying:RemoteTitle{phoneActive ? RemoteTitle(id:"current-phone",kind:"movie",title:phone.title,overview:"",posterURL:session.phoneArtwork):RemoteTitle(id:"current-remote",kind:"movie",title:status?.title ?? initialItem?.title ?? "Nothing playing",overview:"",posterURL:status?.artworkURL ?? initialItem?.posterURL)}
     var body:some View {GeometryReader{geometry in
         let landscape=UIDevice.current.userInterfaceIdiom == .phone && geometry.size.width>geometry.size.height
@@ -83,6 +91,11 @@ struct PlayerPresentation:Identifiable {let id=UUID();let selection:PhonePlaybac
             .frame(height:220).clipShape(.rect(cornerRadius:20))
             .overlay(alignment:.topTrailing){if phoneActive{Button{fullScreen=true}label:{Image(systemName:"arrow.up.left.and.arrow.down.right").frame(width:44,height:44).background(.black.opacity(0.6),in:.circle)}.padding(8).accessibilityLabel("Fullscreen video")}}
         VStack(spacing:6){Text(nowPlaying.title).font(.title2.bold()).multilineTextAlignment(.center).lineLimit(2);Text(active ? (playing ? "Playing on \(output)":"Paused on \(output)"):"Choose a title in Browse to begin.").font(.subheadline).foregroundStyle(.secondary)}.frame(maxWidth:.infinity)
+        if active {VStack(spacing:4){
+            Label(sourceInfo?.sourceLabel ?? "Source unknown",systemImage:sourceInfo?.origin=="download" ? "internaldrive":"network").font(.subheadline.weight(.medium))
+            Text([sourceInfo?.qualityLabel ?? "Quality unknown",resolutionLabel].joined(separator:" · ")).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if let fallback=sourceInfo?.fallbackLabel{Text(fallback).font(.caption).foregroundStyle(.orange).multilineTextAlignment(.center)}
+        }.frame(maxWidth:.infinity).accessibilityElement(children:.combine).accessibilityIdentifier("player.sourceInfo")}
         VStack(spacing:4){Slider(value:$seek,in:0...max(1,duration),onEditingChanged:{editing in scrubbing=editing;if !editing{run{try await action("seek",seconds:seek)}}}).disabled(!active || busy || duration<=0).accessibilityLabel("Playback position");HStack{Text(clock(seek));Spacer();Text(clock(duration))}.font(.caption.monospacedDigit()).foregroundStyle(.secondary)}
         HStack(spacing:36){Button{run{try await action("seek",seconds:max(0,seek-15))}}label:{Image(systemName:"gobackward.15").font(.system(size:29)).frame(width:52,height:60)}.disabled(!active || busy || duration<=0).accessibilityLabel("Back 15 seconds")
             Button{run{try await action(playing ? "pause":"resume")}}label:{ZStack{Circle().fill(FlyxTheme.accent).frame(width:84,height:84);if busy || phone.busy{ProgressView().tint(FlyxTheme.ink)}else{Image(systemName:playing ? "pause.fill":"play.fill").font(.system(size:30,weight:.semibold)).foregroundStyle(FlyxTheme.ink)}}}.disabled(!active || busy || phone.busy).accessibilityLabel(playing ? "Pause":"Play")

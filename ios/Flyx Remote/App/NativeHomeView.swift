@@ -1,0 +1,213 @@
+import SwiftUI
+import Observation
+
+struct HomeFeedEntry:Decodable,Identifiable,Sendable {
+    let id:String
+    let title:RemoteTitle
+    var rank:Int?
+}
+struct HomeFeedSection:Decodable,Identifiable,Sendable {
+    let id:String
+    let kind:String
+    let title:String
+    let subtitle:String
+    let source:String
+    let ranked:Bool
+    let items:[HomeFeedEntry]
+    let stale:Bool
+    var updatedAt:Double?
+    var error:String?
+}
+struct HomeFeedResponse:Decodable,Sendable {
+    let sections:[HomeFeedSection]
+    let checkedAt:Double
+    let cached:Bool
+}
+
+@MainActor @Observable final class NativeHomeFeed {
+    private(set) var sections:[HomeFeedSection]=[]
+    private(set) var loading=false
+    private(set) var error:String?
+    private(set) var requiresUpdate=false
+    private(set) var checkedAt:Date?
+    func load(_ client:RemoteClient,refresh:Bool=false)async {
+        guard !loading,refresh || (checkedAt.map({Date().timeIntervalSince($0)>180}) ?? true) else{return}
+        loading=true;defer{loading=false}
+        do {
+            struct Features:Decodable {var features:[String]?}
+            let info:Features=try await client.request("/remote/v1/info")
+            try Task.checkCancellation()
+            guard info.features?.contains("catalog.home.v1")==true else {
+                requiresUpdate=true;error="Update Flyx on your Mac to load Home. Browse is still available.";return
+            }
+            let response:HomeFeedResponse=try await client.request("/remote/v1/home",query:refresh ? [.init(name:"refresh",value:"1")]:[])
+            try Task.checkCancellation()
+            sections=response.sections;checkedAt=Date(timeIntervalSince1970:response.checkedAt/1000);requiresUpdate=false;error=nil
+            await ConnectionVerification.shared.loadedHome(rows:Dictionary(uniqueKeysWithValues:response.sections.map{($0.id,$0.items.count)}),staleRows:response.sections.filter(\.stale).count)
+        } catch is CancellationError { }
+        catch {if !Task.isCancelled{self.error=sections.isEmpty ? error.localizedDescription:"Could not refresh Home. Showing previously loaded titles."}}
+    }
+}
+
+@MainActor struct NativeHomeView:View {
+    let client:RemoteClient
+    let watchlist:RemoteWatchlist
+    @Environment(\.playbackSession) private var playback
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var feed=NativeHomeFeed()
+    @State private var path:[RemoteTitle]=[]
+    @State private var category="all"
+    private let categories=[("all","All"),("movie","Movies"),("tv","TV"),("anime","Anime"),("manga","Manga")]
+    private var sections:[HomeFeedSection]{feed.sections.filter{category=="all" || $0.kind==category}}
+    private var featured:HomeFeedEntry?{sections.lazy.flatMap(\.items).first}
+    var body:some View {
+        NavigationStack(path:$path){
+            VStack(spacing:0){
+                if path.isEmpty{header}
+                ScrollView {
+                    LazyVStack(alignment:.leading,spacing:28){
+                        if feed.loading && feed.sections.isEmpty {HomeFeedSkeleton()}
+                        else {
+                            if let message=feed.error{status(message)}
+                            if let featured{HomeFeaturedCard(entry:featured,client:client,watchlist:watchlist).padding(.horizontal,20)}
+                            if !watchlist.items.isEmpty,category=="all" {
+                                HomePosterRail(title:"Your watchlist",subtitle:"Saved on your Mac",entries:Array(watchlist.items.prefix(16)).map{HomeFeedEntry(id:$0.stableID,title:$0)},client:client,watchlist:watchlist)
+                            }
+                            ForEach(sections){section in
+                                VStack(alignment:.leading,spacing:12){
+                                    HomePosterRail(title:section.title,subtitle:section.subtitle,entries:section.items,client:client,watchlist:watchlist)
+                                    if let message=section.error{Label(message,systemImage:section.stale ? "clock":"wifi.exclamationmark").font(.caption).foregroundStyle(.secondary).padding(.horizontal,20)}
+                                    else if section.items.isEmpty{Text("No titles are available in this feed right now.").font(.subheadline).foregroundStyle(.secondary).padding(.horizontal,20)}
+                                }
+                            }
+                            if feed.sections.isEmpty && feed.error==nil {
+                                ContentUnavailableView("Home is quiet",systemImage:"house",description:Text("Pull down to refresh the Mac catalogue."))
+                            }
+                            if !feed.sections.isEmpty {
+                                VStack(alignment:.leading,spacing:6){
+                                    Text("Ranked movies follow the TMDB weekly trending order. Other rows keep their catalogue order.")
+                                    if let date=feed.checkedAt{Text("Feed checked \(date,style:.relative) ago")}
+                                }.font(.caption2).foregroundStyle(.secondary).padding(.horizontal,20)
+                            }
+                        }
+                    }.padding(.top,12).padding(.bottom,28)
+                }.refreshable{await feed.load(client,refresh:true)}
+            }.background(FlyxTheme.background)
+                .toolbar(path.isEmpty ? .hidden:.visible,for:.navigationBar)
+                .navigationDestination(for:RemoteTitle.self){RemoteDetailView(client:client,item:$0,watchlist:watchlist)}
+                .task{await feed.load(client)}
+                .onChange(of:scenePhase){_,phase in if phase == .active,path.isEmpty{Task{await feed.load(client)}}}
+        }
+    }
+    private var header:some View {
+        VStack(alignment:.leading,spacing:10){
+            HStack(spacing:10){
+                Text("Flyx").font(.title2.bold()).foregroundStyle(FlyxTheme.accent)
+                Text("Home").font(.title2.bold())
+                Spacer(minLength:8)
+                MacConnectionIndicator(client:client)
+                Button{playback?.selectedTab="browse"}label:{Image(systemName:"magnifyingglass").font(.title3).frame(width:44,height:44).background(FlyxTheme.card,in:.circle)}.accessibilityLabel("Search and browse all titles")
+            }.padding(.horizontal,20)
+            ScrollView(.horizontal){HStack(spacing:8){ForEach(categories,id:\.0){choice in
+                Button{category=choice.0}label:{Text(choice.1).font(.subheadline.weight(.semibold)).padding(.horizontal,17).frame(minHeight:44).foregroundStyle(category==choice.0 ? FlyxTheme.ink:.white).background(category==choice.0 ? FlyxTheme.accent:FlyxTheme.card,in:.capsule)}
+                    .buttonStyle(.plain).accessibilityAddTraits(category==choice.0 ? .isSelected:[])
+            }}.padding(.horizontal,20)}.scrollIndicators(.hidden)
+        }.padding(.top,2).padding(.bottom,12).background(.black)
+    }
+    private func status(_ message:String)->some View {
+        VStack(alignment:.leading,spacing:10){
+            Label(message,systemImage:feed.requiresUpdate ? "desktopcomputer":"wifi.exclamationmark").font(.subheadline).foregroundStyle(.secondary)
+            HStack{Button("Retry"){Task{await feed.load(client,refresh:true)}}.frame(minHeight:44).disabled(feed.loading);Spacer();Button("Open Browse"){playback?.selectedTab="browse"}.frame(minHeight:44)}
+        }.padding(16).background(FlyxTheme.card,in:.rect(cornerRadius:16)).padding(.horizontal,20)
+    }
+}
+
+private struct HomeFeaturedCard:View {
+    let entry:HomeFeedEntry
+    let client:RemoteClient
+    let watchlist:RemoteWatchlist
+    var body:some View {
+        ZStack(alignment:.bottomLeading){
+            HomeArtwork(item:entry.title,backdrop:true)
+            LinearGradient(stops:[.init(color:.black.opacity(0.05),location:0),.init(color:.black.opacity(0.45),location:0.35),.init(color:.black.opacity(0.96),location:1)],startPoint:.top,endPoint:.bottom)
+            VStack(alignment:.leading,spacing:10){
+                Text("FEATURED · \(homeKind(entry.title.kind).uppercased())").font(.caption.weight(.bold)).tracking(1).foregroundStyle(FlyxTheme.accent)
+                Text(entry.title.title).font(.title.bold()).lineLimit(2)
+                HomeTitleMetadata(item:entry.title)
+                if !entry.title.overview.isEmpty{Text(entry.title.overview).font(.subheadline).foregroundStyle(.white.opacity(0.8)).lineLimit(2)}
+                NavigationLink(value:entry.title){Label(entry.title.kind=="manga" ? "Explore manga":"View details",systemImage:"arrow.up.right").font(.subheadline.bold()).padding(.horizontal,18).frame(minHeight:46).foregroundStyle(FlyxTheme.ink).background(FlyxTheme.accent,in:.capsule)}.buttonStyle(.plain)
+            }.padding(20)
+        }.frame(height:360).clipShape(.rect(cornerRadius:24))
+            .overlay(alignment:.topTrailing){WatchlistSaveButton(item:entry.title,model:watchlist,client:client).padding(12)}
+    }
+}
+
+private struct HomePosterRail:View {
+    let title:String
+    let subtitle:String
+    let entries:[HomeFeedEntry]
+    let client:RemoteClient
+    let watchlist:RemoteWatchlist
+    var body:some View {
+        VStack(alignment:.leading,spacing:14){
+            VStack(alignment:.leading,spacing:4){Text(title).font(.title3.bold());Text(subtitle).font(.caption).foregroundStyle(.secondary)}.padding(.horizontal,20)
+            if !entries.isEmpty{ScrollView(.horizontal){LazyHStack(alignment:.top,spacing:14){ForEach(entries){entry in
+                ZStack(alignment:.topTrailing){
+                    NavigationLink(value:entry.title){HomePosterCard(entry:entry)}.buttonStyle(.plain)
+                    WatchlistSaveButton(item:entry.title,model:watchlist,client:client).padding(6)
+                }.frame(width:148)
+            }}.scrollTargetLayout()}.contentMargins(.horizontal,20,for:.scrollContent).scrollIndicators(.hidden).scrollTargetBehavior(.viewAligned)}
+        }
+    }
+}
+
+private struct HomePosterCard:View {
+    let entry:HomeFeedEntry
+    var body:some View {
+        VStack(alignment:.leading,spacing:8){
+            HomeArtwork(item:entry.title).frame(width:148,height:222).clipShape(.rect(cornerRadius:14))
+                .overlay(alignment:.bottomLeading){if let rank=entry.rank{Text(rank.formatted()).font(.system(size:44,weight:.black,design:.rounded)).foregroundStyle(FlyxTheme.accent).padding(.horizontal,10).background(.black.opacity(0.78),in:.rect(cornerRadius:10)).padding(7)}}
+            HomeTitleMetadata(item:entry.title)
+            Text(entry.title.title).font(.subheadline.weight(.semibold)).lineLimit(2).frame(height:42,alignment:.topLeading).frame(maxWidth:.infinity,alignment:.leading)
+        }.accessibilityElement(children:.ignore).accessibilityLabel("\(entry.rank.map{"Rank \($0). "} ?? "")\(entry.title.title), \(homeKind(entry.title.kind))")
+    }
+}
+
+private struct HomeTitleMetadata:View {
+    let item:RemoteTitle
+    var body:some View {
+        HStack(spacing:7){
+            Text(homeKind(item.kind))
+            if let date=item.releaseDate,date.count>=4{Text(String(date.prefix(4)))}
+            if let rating=item.rating{Label(rating.formatted(.number.precision(.fractionLength(1))),systemImage:"star.fill").foregroundStyle(FlyxTheme.accent)}
+        }.font(.caption2.weight(.medium)).foregroundStyle(.secondary).lineLimit(1).frame(minHeight:16)
+    }
+}
+
+private struct HomeArtwork:View {
+    let item:RemoteTitle
+    var backdrop=false
+    var body:some View {GeometryReader{geometry in
+        AsyncImage(url:(backdrop ? item.backdropURL ?? item.posterURL:item.posterURL).flatMap(URL.init(string:))){phase in
+            if let image=phase.image{image.resizable().scaledToFill().frame(width:geometry.size.width,height:geometry.size.height).clipped()}
+            else if phase.error != nil || item.posterURL==nil{ZStack{FlyxTheme.card;Image(systemName:item.kind=="manga" ? "book.closed":"film").font(.largeTitle).foregroundStyle(.secondary)}.frame(width:geometry.size.width,height:geometry.size.height)}
+            else{Rectangle().fill(.white.opacity(0.06)).loadingShimmer()}
+        }.transaction{$0.animation=nil}
+    }.accessibilityHidden(true)}
+}
+
+private struct HomeFeedSkeleton:View {
+    var body:some View {
+        VStack(alignment:.leading,spacing:28){
+            RoundedRectangle(cornerRadius:24).fill(.white.opacity(0.06)).frame(height:360).padding(.horizontal,20)
+            ForEach(0..<2,id:\.self){_ in VStack(alignment:.leading,spacing:14){
+                RoundedRectangle(cornerRadius:4).fill(.white.opacity(0.08)).frame(width:170,height:20).padding(.horizontal,20)
+                ScrollView(.horizontal){HStack(spacing:14){ForEach(0..<3,id:\.self){_ in VStack(alignment:.leading,spacing:8){RoundedRectangle(cornerRadius:14).fill(.white.opacity(0.06)).frame(width:148,height:222);RoundedRectangle(cornerRadius:4).fill(.white.opacity(0.06)).frame(width:125,height:12);RoundedRectangle(cornerRadius:4).fill(.white.opacity(0.06)).frame(width:90,height:12)}}}.padding(.horizontal,20)}.scrollDisabled(true).scrollIndicators(.hidden)
+            }}
+        }.loadingShimmer().allowsHitTesting(false).accessibilityElement(children:.ignore).accessibilityLabel("Loading Home")
+    }
+}
+
+private func homeKind(_ kind:String)->String {
+    switch kind{case "movie":return "Movie";case "tv":return "TV";case "anime":return "Anime";case "manga":return "Manga";default:return "Title"}
+}

@@ -42,6 +42,7 @@
 		E26CA4042CFAE8A029170DD7 /* KeyboardButtonGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EC748AB9C69D960D48AC570 /* KeyboardButtonGeometry.swift */; };
 		F8C9DCCAF965A105E2B7A21C /* FlyxTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E5505E14B8FC1F56E779CF5 /* FlyxTheme.swift */; };
 		FCA6FA205402ADC750719FA8 /* SeriesReadOnlyVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804AA1FF3E5684B83DE7A4A0 /* SeriesReadOnlyVerification.swift */; };
+		A441B22043D44E759DD0D00A /* NativeHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A441B22043D44E759DD0D00B /* NativeHomeView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -81,6 +82,7 @@
 		E821AC4251A2724695773494 /* CatalogBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogBrowser.swift; sourceTree = "<group>"; };
 		EE76C38419797E6EFF405EB0 /* DestinationTransfers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationTransfers.swift; sourceTree = "<group>"; };
 		FA04F95CA8D07F503F2B2385 /* PhonePlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePlayback.swift; sourceTree = "<group>"; };
+		A441B22043D44E759DD0D00B /* NativeHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHomeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -123,6 +125,7 @@
 				5A52FCA0ED608DF70EB7C3BC /* RemoteCompatibility.swift */,
 				93246043AE3ACC95DCABBA2A /* RemoteControls.swift */,
 				42E37BA41C9C75556746EF8B /* RemoteLibraryView.swift */,
+				A441B22043D44E759DD0D00B /* NativeHomeView.swift */,
 				21EA6F0EB22F4F7EF005B76F /* RemoteProgress.swift */,
 				DD257C8BB80012445EDF15CE /* RemoteWatchlist.swift */,
 				804AA1FF3E5684B83DE7A4A0 /* SeriesReadOnlyVerification.swift */,
@@ -239,6 +242,7 @@
 				30FB911F2746A8FBE2EC7F88 /* RemoteCompatibility.swift in Sources */,
 				18EEB8681CE4EDB9A208814D /* RemoteControls.swift in Sources */,
 				6ABFE25F008E9C8C4DF24E84 /* RemoteLibraryView.swift in Sources */,
+				A441B22043D44E759DD0D00A /* NativeHomeView.swift in Sources */,
 				1AFB496195C9C1CEA7F10BD3 /* RemoteProgress.swift in Sources */,
 				2F71812C79D1D3B7C7AA00C9 /* RemoteWatchlist.swift in Sources */,
 				FCA6FA205402ADC750719FA8 /* SeriesReadOnlyVerification.swift in Sources */,
@@ -322,7 +326,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 42;
+				CURRENT_PROJECT_VERSION = 44;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -387,7 +391,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 42;
+				CURRENT_PROJECT_VERSION = 44;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;

@@ -3,33 +3,11 @@ import ContentCard from "@/components/ContentCard";
 import ContentRail from "@/components/ui/ContentRail";
 import ContinueWatching from "@/components/ContinueWatching";
 import HomeSearchBar from "@/components/search/HomeSearchBar";
-import { tmdbBackdrop, tmdbFetch, tmdbPoster } from "@/lib/tmdb-server";
-
-interface TMDBItem {
-  id: number;
-  title?: string;
-  name?: string;
-  poster_path?: string;
-  backdrop_path?: string;
-  overview?: string;
-  vote_average?: number;
-  release_date?: string;
-  first_air_date?: string;
-  media_type?: string;
-}
-
-interface TMDBList {
-  results?: TMDBItem[];
-}
+import { loadMacHomeLists, type HomeTMDBItem as TMDBItem } from "@/lib/mac-home";
+import { tmdbBackdrop, tmdbPoster } from "@/lib/tmdb-server";
 
 export default async function HomePageContent() {
-  const [trending, popular, topRated, tvTrending, upcoming] = await Promise.all([
-    tmdbFetch<TMDBList>("/trending/movie/week"),
-    tmdbFetch<TMDBList>("/movie/popular"),
-    tmdbFetch<TMDBList>("/movie/top_rated"),
-    tmdbFetch<TMDBList>("/trending/tv/week"),
-    tmdbFetch<TMDBList>("/movie/now_playing"),
-  ]);
+  const [trending, popular, topRated, tvTrending, upcoming] = await loadMacHomeLists();
 
   const hero: TMDBItem | undefined = trending?.results?.[0];
   const trendingMovies = trending?.results ?? [];

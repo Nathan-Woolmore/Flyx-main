@@ -1,4 +1,4 @@
-const catalogPaths = new Set(['/api/content/search','/api/content/details','/api/content/season','/api/anime/jikan','/api/manga/popular','/api/manga/search','/api/manga/details','/api/tmdb']);
+const catalogPaths = new Set(['/api/content/home','/api/content/search','/api/content/details','/api/content/season','/api/anime/jikan','/api/manga/popular','/api/manga/search','/api/manga/details','/api/tmdb']);
 export function watchTarget(command) {
   const query=new URLSearchParams({[command.kind === 'anime' ? 'malId' : 'tmdbId']:String(command.contentID),mediaType:command.kind === 'movie' ? 'movie' : 'tv'});
   if(command.kind !== 'movie') {query.set('season',String(command.season ?? 1));query.set('episode',String(command.episode));}
@@ -41,8 +41,13 @@ export function createRendererAdapter({navigate,player,fetchJSON,waitForPlayer,c
     if(action === 'downloads') return downloads(payload);
     const snapshot=async()=>{
       const state=cast?await cast.getState():null;
-      if(state?.isCasting)return {...player.snapshot(),state:state.playerState?.toLowerCase()??'idle',position:state.currentTime??0,duration:state.duration??0,output:'tv',outputName:state.deviceName??'TV',volume:state.volume,isMuted:state.isMuted};
-      return player.snapshot();
+      if(state?.isCasting){
+        // Use the confirmed TV session, never the Mac's current browsing source.
+        const active=await destinationTransfers({method:'snapshot',origin:'tv'}).catch(()=>null);
+        return {...player.snapshot(),title:active?.title,sourceInfo:active?.sourceInfo,videoWidth:undefined,videoHeight:undefined,state:state.playerState?.toLowerCase()??'idle',position:state.currentTime??0,duration:state.duration??0,output:'tv',outputName:state.deviceName??'TV',volume:state.volume,isMuted:state.isMuted};
+      }
+      let sourceInfo;try{sourceInfo=currentRemoteCastSource().sourceInfo;}catch{}
+      return {...player.snapshot(),sourceInfo};
     };
     if(action === 'status') {const value=await snapshot();return{...value,phonePlayback:value.output!=='tv'&&['video/mp4','application/x-mpegURL'].includes(castSource?.contentType)};}
     if(action==='phoneMedia') {

@@ -33,6 +33,7 @@ struct RemoteHomeView:View {
  @State private var watchlist=RemoteWatchlist()
  @State private var playback=PlaybackSession()
  var body:some View {TabView(selection:$playback.selectedTab) {
+  Tab("Home",systemImage:"house",value:"home"){NativeHomeView(client:client,watchlist:watchlist)}
   Tab("Browse",systemImage:"square.grid.2x2",value:"browse"){RemoteLibraryView(client:client,watchlist:watchlist)}
   Tab("Watchlist",systemImage:"bookmark",value:"watchlist"){RemoteWatchlistView(client:client,model:watchlist)}
   Tab("Remote",systemImage:"play.rectangle",value:"remote"){RemoteControlView(client:client)}

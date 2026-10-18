@@ -6,6 +6,7 @@ struct RemoteTitle: Codable, Identifiable, Hashable, Sendable {
     let title: String
     let overview: String
     let posterURL: String?
+    var backdropURL:String? = nil
     var rating:Double? = nil
     var releaseDate:String? = nil
     var voteCount:Int? = nil
@@ -31,7 +32,24 @@ struct PairingPending: Decodable { let requestID: String; let status: String }
 struct PairingCollect: Encodable { let requestID: String }
 struct PairingGrant: Decodable { let status: String; let token: String?; let scopes: [String]?; let deviceID:String? }
 struct PlayCommand: Encodable { let id: String; let type: String; let kind: String; let contentID: Int; let season: Int?; let episode: Int?;var seconds:Double? = nil }
-struct PlaybackStatus: Decodable, Sendable { let state: String; let position: Double; let duration: Double; var title:String?;var artworkURL:String?;var output:String?;var outputName:String?;var volume:Double?;var isMuted:Bool?;var audioControl:Bool?;var phonePlayback:Bool? }
+struct PlaybackStatus: Decodable, Sendable { let state: String; let position: Double; let duration: Double; var title:String?;var artworkURL:String?;var output:String?;var outputName:String?;var volume:Double?;var isMuted:Bool?;var audioControl:Bool?;var phonePlayback:Bool?;var sourceInfo:PlaybackSourceInfo?;var videoWidth:Int?;var videoHeight:Int? }
+struct PlaybackSourceInfo:Decodable,Sendable {
+    var origin:String?;var provider:String?;var quality:String?;var qualityBasis:String?;var downloadID:String?;var selection:PhonePlaybackSelection?;var fallback:String?
+    var sourceLabel:String {
+        if origin=="download"{return "Downloaded on Mac"}
+        guard origin=="provider",let provider,!provider.isEmpty else{return "Source unknown"}
+        return ["vidsrc":"VidSrc","vidlove":"VidLove","multiembed":"MultiEmbed","videasy":"Videasy","animex":"AnimeX"][provider.lowercased()] ?? provider
+    }
+    var qualityLabel:String {
+        guard let quality,!quality.isEmpty else{return "Quality unknown"}
+        if ["auto","unknown"].contains(quality.lowercased()){return quality.lowercased()=="auto" ? "Quality: Auto":"Quality unknown"}
+        if quality.lowercased()=="original"{return qualityBasis=="requested" ? "Original (saved label)":"Original advertised"}
+        return "\(quality) \(qualityBasis=="requested" ? "requested":"advertised")"
+    }
+    var fallbackLabel:String? {
+        switch fallback {case "local-unavailable":return origin=="download" ? "Previous download unavailable · using another copy":"Download unavailable · using online source";case "source-failed":return "Previous source failed · using fallback";default:return nil}
+    }
+}
 struct PlaybackTransfer:Decodable,Sendable {let position:Double;let paused:Bool}
 struct CommandResult: Decodable { let ok: Bool; let status: PlaybackStatus;var transfer:PlaybackTransfer? }
 struct RemoteFailure: LocalizedError { let message: String; var status:Int? = nil; var errorDescription: String? { message } }

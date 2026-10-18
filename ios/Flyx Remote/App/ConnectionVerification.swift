@@ -10,6 +10,8 @@ actor ConnectionVerification {
         var keychainRestored = false
         var authenticated = false
         var catalogItemCount: Int?
+        var homeRows: [String:Int]?
+        var homeStaleRows: Int?
     }
     private let launchID = UUID().uuidString
     private var launches: [Launch] = []
@@ -28,6 +30,7 @@ actor ConnectionVerification {
     func restoredKeychain() { update { $0.keychainRestored = true } }
     func authenticatedSession() { update { $0.authenticated = true } }
     func loadedCatalog(itemCount: Int) { update { $0.catalogItemCount = itemCount } }
+    func loadedHome(rows:[String:Int],staleRows:Int) { update { $0.homeRows=rows;$0.homeStaleRows=staleRows;$0.catalogItemCount=rows.values.reduce(0,+) } }
 
     private func update(_ change: (inout Launch) -> Void) {
         #if !DEBUG

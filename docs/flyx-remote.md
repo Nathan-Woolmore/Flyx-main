@@ -74,6 +74,14 @@ Cancel stops an active job; partial video output may be discarded. Cancelling a 
 
 These features require the matching build-41 Mac bridge and iOS companion. Existing pairing, scoped permissions and the Mac silent-playback policy stay in place.
 
+## Native Home and source reporting
+
+Build 44 adds a native iOS Home tab alongside Browse, Watchlist, Remote and Downloads. The Mac Home page and companion feed share the same five TMDB lists; anime and manga reuse their existing Mac catalogue routes. Top 10 movie badges retain weekly trending positions. Other rows keep their provider order without a combined ranking. The scoped Home endpoint supports a short memory cache, coalesced refreshes and explicit stale/empty/error rows. Title details keep the existing resume, save, download and playback-destination flows.
+
+Now Playing reports the selected download or provider and its requested/advertised quality label. Mac and iPhone dimensions come from their current player when available; TV resolution remains unknown. Confirmed TV session metadata is retained independently of subsequent Mac browsing. Source fallback notices identify download failure or a previous source failure. Only allowlisted provenance crosses the Remote boundary; media URLs and signing queries remain private.
+
+Casting a completed local download serves the saved MP4's unchanged range bytes. Download creation can stream-copy or compatibility-encode a source; a requested quality label is not a measured file resolution or bitrate. Buffering does not add detail to an already-saved file.
+
 ## Distribution status
 
 This fork is public source. As checked on 17 October 2026, the fork has no GitHub release assets containing these changes. Upstream release links in the general README refer to upstream builds and do not include this branch's companion/bridge work.

@@ -6,7 +6,7 @@ import Observation
 @MainActor @Observable final class PlaybackSession {
     let phone=PhonePlaybackModel()
     let transfer=DestinationTransferModel()
-    var selectedTab="browse"
+    var selectedTab="home"
     var phoneActive=false
     var status:PlaybackStatus?
     var busy=false

@@ -35,10 +35,12 @@ function item(value, kind) {
   const id = value.id ?? value.mal_id;
   if (id == null) throw new Error('Missing catalog ID');
   const image = value.posterPath ?? value.poster_path ?? value.coverImage ?? value.images?.webp?.large_image_url ?? value.images?.jpg?.image_url;
+  const backdrop=value.backdrop_path??value.backdropPath;
+  const backdropURL=typeof backdrop==='string'?(backdrop.startsWith('/')?`https://image.tmdb.org/t/p/w780${backdrop}`:/^https:\/\//.test(backdrop)?backdrop:null):null;
   const score=Number(value.vote_average??value.rating??value.score);
   const releaseDate=value.release_date??value.first_air_date??value.releaseDate??value.aired?.from??(value.year?String(value.year):null);
   const votes=value.vote_count??value.voteCount??value.scored_by;
-  return {voteCount:Number.isSafeInteger(votes)&&votes>=0?votes:null,rating:Number.isFinite(score)&&score>0&&score<=10?score:null,releaseDate:typeof releaseDate==='string'?releaseDate:null, id: String(id), kind, title: value.title ?? value.name ?? 'Untitled', overview: value.overview ?? value.description ?? value.synopsis ?? '', posterURL: typeof image === 'string' ? (image.startsWith('/') ? `https://image.tmdb.org/t/p/w500${image}` : /^https:\/\//.test(image) ? image : null) : null };
+  return {backdropURL,voteCount:Number.isSafeInteger(votes)&&votes>=0?votes:null,rating:Number.isFinite(score)&&score>0&&score<=10?score:null,releaseDate:typeof releaseDate==='string'?releaseDate:null, id: String(id), kind, title: value.title ?? value.name ?? 'Untitled', overview: value.overview ?? value.description ?? value.synopsis ?? '', posterURL: typeof image === 'string' ? (image.startsWith('/') ? `https://image.tmdb.org/t/p/w500${image}` : /^https:\/\//.test(image) ? image : null) : null };
 }
 function metadataFor(data,kind){
  const rows=[];const add=(label,value)=>{if(value!==undefined&&value!==null&&value!==''&&value!==0)rows.push({label,value:String(value)});};

@@ -1,5 +1,6 @@
 "use client";
 
+import { playbackSourceInfo } from "@/lib/remote/source-info.mjs";
 import { registerRemoteCastSource } from "@/lib/remote/renderer.mjs";
 import { resolveCastStreamUrl } from "@/lib/external-player-client";
 import Link from "next/link";
@@ -374,6 +375,7 @@ function WatchInner() {
   // Provider / server selector
   /** Provider currently driving playback (chip "On" badge). */
   const [playbackProvider, setPlaybackProvider] = useState<string | null>(null);
+  const [sourceFallback, setSourceFallback] = useState<string | undefined>(undefined);
   /** Provider selected in the sheet for browsing sources (does not auto-play). */
   const [sheetProvider, setSheetProvider] = useState<string | null>(null);
   const [sourcesCache, setSourcesCache] = useState<
@@ -937,7 +939,7 @@ function WatchInner() {
     if (!activeUrl) return null;
     for (const list of Object.values(sourcesCache)) {
       const found = list.find((s) => s.url === activeUrl);
-      if (found) return { url: found.url, referer: found.referer, origin: found.origin };
+      if (found) return { url: found.url, referer: found.referer, origin: found.origin, provider: found.provider, quality: found.quality };
     }
     return { url: activeUrl };
   }, [activeUrl, sourcesCache]);
@@ -1399,6 +1401,7 @@ function WatchInner() {
     setCurrentTime(0);
     setDuration(0);
     setPlaybackProvider(null);
+    setSourceFallback(undefined);
     setSheetProvider(null);
     setSourcesCache({});
     setProviderState({});
@@ -1633,6 +1636,7 @@ function WatchInner() {
   /** Explicit source pick — only place (besides initial load / recovery) that changes playback. */
   const selectSource = useCallback(
     (src: StreamSource) => {
+      setSourceFallback(undefined);
       failedSourcesRef.current.delete(src.url);
       consecutiveFailuresRef.current = 0;
       explicitMp4ChoiceRef.current = src.provider === "local" ? null : { url: src.url, label: String(src.quality || "selected") };
@@ -1670,18 +1674,20 @@ function WatchInner() {
     if (!activeUrl) return;
     const inventory=Array.from(new Map(Object.values(sourcesCache).flat().map(src=>[src.url,src])).values());
     const indexed=inventory.map(src=>({key:crypto.randomUUID(),src}));
+    const sourceInfo=playbackSourceInfo(currentRawSource ?? {url:activeUrl}, {provider:playbackProvider, fallback:sourceFallback, identity:JSON.stringify([malId ? "anime" : mediaType, malId || tmdbId, season ?? 1, episode ?? 1])});
     return registerRemoteCastSource({
       sourceKey:activeUrl,
+      sourceInfo,
       describe:()=>indexed.map(({key,src})=>({key,provider:src.provider??"Source",quality:src.quality??"Auto",language:detectAudioLang(src)??"",format:src.url.includes(".m3u8")?"hls":"mp4",selected:src.url===activeUrl})),
       select:(key:string)=>{const entry=indexed.find(row=>row.key===key);if(!entry)throw new Error("Source expired");selectSource(entry.src);return entry.src.url;},
       contentType: activeUrl.includes(".m3u8") || /\/uwu\//i.test(activeUrl) ? "application/x-mpegURL" : "video/mp4",
-      preparePhone: async () => ({url:await resolveHostStreamUrl({source:currentRawSource ?? {url:activeUrl}}),contentType:activeUrl.includes(".m3u8") || /\/uwu\//i.test(activeUrl) ? "application/x-mpegURL" : "video/mp4",title}),
-      prepare: async () => ({url: await resolveCastStreamUrl(currentRawSource ?? {url:activeUrl}),title,
+      preparePhone: async () => ({sourceInfo,url:await resolveHostStreamUrl({source:currentRawSource ?? {url:activeUrl}}),contentType:activeUrl.includes(".m3u8") || /\/uwu\//i.test(activeUrl) ? "application/x-mpegURL" : "video/mp4",title}),
+      prepare: async () => ({sourceInfo,url: await resolveCastStreamUrl(currentRawSource ?? {url:activeUrl}),title,
         contentType: activeUrl.includes(".m3u8") || /\/uwu\//i.test(activeUrl) ? "application/x-mpegURL" : "video/mp4",
         startTime: videoRef.current?.currentTime || 0}),
       pause: () => videoRef.current?.pause(),
     });
-  }, [activeUrl,currentRawSource,title,sourcesCache,selectSource]);
+  }, [activeUrl,currentRawSource,title,sourcesCache,selectSource,playbackProvider,sourceFallback,malId,tmdbId,mediaType,season,episode]);
 
   /**
    * Switch Sub / Dub for anime — filters source list and swaps to best
@@ -1776,6 +1782,7 @@ function WatchInner() {
     setStatus("loading");
     setProviderState((previous) => ({ ...previous, local: "empty" }));
     setSourcesCache((previous) => { const next = { ...previous }; delete next.local; return next; });
+    setSourceFallback("local-unavailable");
     showToast("Local download unavailable — trying online…");
     void fetchFromProvider(null).then((result) => {
       if (generation !== probeGenRef.current || key !== contentKeyRef.current || trayHiddenRef.current) return;
@@ -1968,6 +1975,7 @@ function WatchInner() {
         // The failed source is already torn down (currentTime reset to 0):
         // resume the next one from the last good position instead.
         rememberFailoverResume();
+        setSourceFallback((previous) => previous === "local-unavailable" ? previous : "source-failed");
         consecutiveFailuresRef.current++;
         const fails = consecutiveFailuresRef.current;
         console.log(`[Watch] ⏱️ Playback failure #${fails}/${MAX_CONSECUTIVE_FAILURES}`);

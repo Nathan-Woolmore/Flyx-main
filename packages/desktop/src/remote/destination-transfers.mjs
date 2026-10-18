@@ -1,3 +1,4 @@
+import {publicSourceInfo} from './source-info.mjs';
 import {randomUUID} from 'node:crypto';
 
 const failure=code=>Object.assign(new Error(code),{code});
@@ -40,8 +41,9 @@ export function createDestinationTransfers(adapter,{now=Date.now,makeID=randomUU
    record.stage=await adapter.prepareDestination({id,owner,origin,destination:body.destination,receiverID:body.receiverID,signal:record.abort.signal});check(record);
    const current=await adapter.snapshotOrigin({...body,owner});check(record);if(!validSnapshot(current)||!same(origin,current))throw failure('TRANSFER_ORIGIN_CHANGED');
    if(!await adapter.destinationIsCurrent({id,destination:record.destination,stage:record.stage}))throw failure('TRANSFER_DESTINATION_CHANGED');check(record);
-   if(record.stage?.publicData&&Object.keys(record.stage.publicData).some(k=>!['handle','format','position','duration','paused'].includes(k)))throw failure('TRANSFER_INVALID');
+   if(record.stage?.publicData&&Object.keys(record.stage.publicData).some(k=>!['handle','format','position','duration','paused','sourceInfo'].includes(k)))throw failure('TRANSFER_INVALID');
    if(record.stage?.publicData?.handle&&!/^[a-zA-Z0-9-]{8,80}$/.test(record.stage.publicData.handle))throw failure('TRANSFER_INVALID');
+   if(record.stage?.publicData)record.stage.publicData={...record.stage.publicData,sourceInfo:publicSourceInfo(record.stage.publicData.sourceInfo)};
    record.phase='prepared';return{id,phase:'prepared',origin:body.origin,destination:body.destination,status:publicStatus(current),...(record.stage?.publicData?{destinationData:record.stage.publicData}:{})};
   }catch(error){record.phase=record.cancelled?'cancelled':'failed';record.cancelTimer?.();await rollback(record);if(record.rollbackUnconfirmed)throw failure('TRANSFER_ROLLBACK_UNCONFIRMED');throw error;}finally{record.running=false;}
  }
