@@ -175,13 +175,17 @@ private struct HomePosterCard:View {
 
 private struct HomeTitleMetadata:View {
     let item:RemoteTitle
+    private var year:String? {guard let date=item.releaseDate,date.count>=4 else{return nil};return String(date.prefix(4))}
     var body:some View {
-        HStack(spacing:7){
-            Text(homeKind(item.kind))
-            if let date=item.releaseDate,date.count>=4{Text(String(date.prefix(4)))}
-            if let rating=item.rating{Label(rating.formatted(.number.precision(.fractionLength(1))),systemImage:"star.fill").foregroundStyle(FlyxTheme.accent)}
-        }.font(.caption2.weight(.medium)).foregroundStyle(.secondary).lineLimit(1).frame(minHeight:16)
+        ViewThatFits(in:.horizontal){
+            HStack(spacing:7){kind;if let year{Text(year).fixedSize()};rating}.fixedSize(horizontal:true,vertical:true)
+            HStack(spacing:7){kind;rating}.fixedSize(horizontal:true,vertical:true)
+            VStack(alignment:.leading,spacing:4){kind;rating}
+        }.font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+            .frame(maxWidth:.infinity,minHeight:16,alignment:.leading)
     }
+    private var kind:some View {Text(homeKind(item.kind)).fixedSize(horizontal:true,vertical:true)}
+    @ViewBuilder private var rating:some View {if let rating=item.rating,rating>0{RatingValue(rating:rating).foregroundStyle(FlyxTheme.accent)}}
 }
 
 private struct HomeArtwork:View {
@@ -211,3 +215,20 @@ private struct HomeFeedSkeleton:View {
 private func homeKind(_ kind:String)->String {
     switch kind{case "movie":return "Movie";case "tv":return "TV";case "anime":return "Anime";case "manga":return "Manga";default:return "Title"}
 }
+
+#if DEBUG
+/// One offline layout check for the clipped Home score and Browse badge.
+struct RatingClippingFixture:View {
+    private let item=RemoteTitle(id:"rating-fixture",kind:"movie",title:"Rating layout",overview:"",posterURL:nil,rating:8.65,releaseDate:"2026-10-18")
+    var body:some View {NavigationStack{ScrollView{VStack(alignment:.leading,spacing:28){
+        Text("SYNTHETIC · NO NETWORK").font(.caption).foregroundStyle(.secondary)
+        HStack(alignment:.top,spacing:18){sample(width:148,label:"Home · 148 pt");sample(width:128,label:"Home · 128 pt")}
+        Text("Larger text").font(.headline)
+        HStack(alignment:.top,spacing:18){sample(width:148,label:"148 pt");sample(width:128,label:"128 pt")}.dynamicTypeSize(.xxxLarge)
+        Text("Browse poster badges").font(.headline)
+        HStack(spacing:18){badge(width:148,rating:8.65);badge(width:128,rating:10)}
+    }.padding(20)}.background(.black).navigationTitle("Rating layout").navigationBarTitleDisplayMode(.inline)}}
+    private func sample(width:CGFloat,label:String)->some View {VStack(alignment:.leading,spacing:12){Text(label).font(.caption);RoundedRectangle(cornerRadius:14).fill(FlyxTheme.card).frame(height:90);HomeTitleMetadata(item:item);Text("Full score visible").font(.caption).foregroundStyle(.secondary)}.frame(width:width)}
+    private func badge(width:CGFloat,rating:Double)->some View {RoundedRectangle(cornerRadius:14).fill(FlyxTheme.card).frame(width:width,height:110).clipShape(.rect(cornerRadius:14)).overlay(alignment:.bottomLeading){PosterRating(rating:rating).padding(8)}}
+}
+#endif

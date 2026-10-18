@@ -37,14 +37,28 @@ private struct CategoryGlass:ViewModifier {
     }
 }
 
+/// The symbol and score are one intrinsic-width unit in every card layout.
+struct RatingValue:View {
+    let rating:Double
+    var body:some View {
+        HStack(spacing:4){
+            Image(systemName:"star.fill").accessibilityHidden(true)
+            Text(rating.formatted(.number.precision(.fractionLength(1)))).monospacedDigit().lineLimit(1)
+        }.fixedSize(horizontal:true,vertical:true)
+            .accessibilityElement(children:.ignore)
+            .accessibilityLabel("Rating \(rating.formatted(.number.precision(.fractionLength(1)))) out of 10")
+    }
+}
+
 struct PosterRating:View {
     let rating:Double?
     var body:some View {
         if let rating,rating>0 {
-            Label(rating.formatted(.number.precision(.fractionLength(0...2))),systemImage:"star.fill")
-                .font(.caption.weight(.semibold)).foregroundStyle(.white).padding(.horizontal,9).padding(.vertical,5)
-                .background(.black.opacity(0.65),in:.capsule).overlay(Capsule().stroke(.white.opacity(0.2)))
-                .accessibilityLabel("Rating \(rating.formatted()) out of 10")
+            RatingValue(rating:rating)
+                .font(.caption.weight(.semibold)).foregroundStyle(.white)
+                .padding(.horizontal,9).padding(.vertical,5).fixedSize(horizontal:true,vertical:true)
+                .background(.black.opacity(0.65),in:.capsule)
+                .overlay{Capsule().strokeBorder(.white.opacity(0.2))}
         }
     }
 }
