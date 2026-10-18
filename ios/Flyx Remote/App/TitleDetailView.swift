@@ -48,14 +48,14 @@ struct RemoteDetailView:View {
         ScrollView{VStack(alignment:.leading,spacing:24){
             RemotePoster(item:item).frame(height:280).clipShape(.rect(cornerRadius:20))
             VStack(alignment:.leading,spacing:10){Text(item.title).font(.largeTitle.bold()).fixedSize(horizontal:false,vertical:true);TitleFacts(item:item,details:details)}
-            if details != nil,item.kind != "manga"{playbackArea}
+            if item.kind != "manga",details != nil || loadingDetails{playbackArea.redacted(reason:loadingDetails ? .placeholder:[]).loadingShimmer(loadingDetails).allowsHitTesting(!loadingDetails).accessibilityHidden(loadingDetails)}
             else if let details,item.kind=="manga"{MangaChapterSection(client:client,item:item,chapters:details.chapters ?? [])}
             if let watchlist{HStack(spacing:10){WatchlistSaveButton(item:item,model:watchlist,client:client);Text(watchlist.contains(item) ? "Saved on Mac":"Save to Mac watchlist").font(.subheadline)};if !watchlist.canWrite{Text("Allow watchlist saving in Flyx on Mac.").font(.caption).foregroundStyle(.secondary)}}
             let overview=details?.overview ?? item.overview
             if !overview.isEmpty{VStack(alignment:.leading,spacing:10){Text("Overview").font(.headline);Text(overview).font(.body).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)}}
             if item.kind=="movie",let trailer=details?.trailer{MovieTrailerSection(trailer:trailer)}
             if let metadata=details?.metadata,!metadata.isEmpty{TitleInformation(rows:metadata)}
-            if loadingDetails{VStack(spacing:12){ForEach(0..<3,id:\.self){_ in RoundedRectangle(cornerRadius:8).fill(.quaternary).frame(height:44)}}.loadingShimmer().accessibilityLabel("Loading title details")}
+            if loadingDetails{ProgressView(item.kind=="manga" ? "Loading chapters…":"Loading title information…").frame(minHeight:44).frame(maxWidth:.infinity,alignment:.leading)}
             if let message{Text(message).font(.footnote).foregroundStyle(FlyxTheme.accent)}
             if let error{VStack(alignment:.leading,spacing:8){Text(error).font(.footnote).foregroundStyle(.orange);Button("Retry details"){retry+=1}}}
             if item.kind=="movie" || item.kind=="tv"{AudienceReviewsSection(client:client,item:item).id(item.stableID)}
@@ -71,15 +71,15 @@ struct RemoteDetailView:View {
     }
     private var playbackArea:some View {VStack(alignment:.leading,spacing:16){
         HStack{Text("PLAYBACK").font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary);Spacer();
-            Menu{Button{destination="mac"}label:{Label("Mac",systemImage:"desktopcomputer")};if directPhone{Button{destination="phone"}label:{Label("This iPhone",systemImage:"iphone")}};Button{castPresented=true}label:{Label("Cast to TV…",systemImage:"tv")}}label:{HStack(spacing:7){Image(systemName:destination=="phone" ? "iphone":destination=="tv" ? "tv":"desktopcomputer");Text(destinationLabel).lineLimit(1);Image(systemName:"chevron.down").font(.caption2.weight(.bold))}.font(.subheadline.weight(.semibold)).frame(minHeight:44).padding(.horizontal,12).background(.white.opacity(0.06),in:.capsule)}.accessibilityLabel("Playback destination").accessibilityIdentifier("detail.destination").disabled(busy)
+            Menu{Button{destination="mac"}label:{Label("Mac",systemImage:"desktopcomputer")};if directPhone{Button{destination="phone"}label:{Label("This iPhone",systemImage:"iphone")}};Button{castPresented=true}label:{Label("Cast to TV",systemImage:"tv")}}label:{HStack(spacing:7){Image(systemName:destination=="phone" ? "iphone":destination=="tv" ? "tv":"desktopcomputer");Text(destinationLabel).lineLimit(1);Image(systemName:"chevron.down").font(.caption2.weight(.bold))}.font(.subheadline.weight(.semibold)).frame(minHeight:44).padding(.horizontal,12).background(.white.opacity(0.06),in:.capsule)}.accessibilityLabel("Playback destination").accessibilityIdentifier("detail.destination").disabled(busy)
         }
         if item.kind != "movie"{episodeSelection}
         if let episodeLabel{Text(episodeLabel).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)}
         Button{play()}label:{HStack(spacing:12){if busy{ProgressView().tint(FlyxTheme.ink)}else{Image(systemName:"play.fill").font(.system(size:21,weight:.semibold))};Text(busy ? "Preparing…":playLabel).font(.headline);Spacer()}.foregroundStyle(FlyxTheme.ink).padding(.horizontal,20).frame(maxWidth:.infinity,minHeight:58).background(FlyxTheme.accent,in:.rect(cornerRadius:16)).contentShape(.rect(cornerRadius:16))}.buttonStyle(.plain).disabled(busy || loadingDetails || (item.kind != "movie" && episode==nil)).accessibilityLabel("\(playLabel) \(episodeLabel ?? item.title) on \(destinationLabel)").accessibilityIdentifier("detail.play")
         if progressSupported,savedProgress != nil{Button("Start over"){startOver=true;if item.kind != "movie"{selectedEpisode=episodes.first(where:{$0.number==savedProgress?.episode})?.number ?? episodes.first?.number}}.font(.subheadline).frame(minHeight:44).disabled(busy)}
         if let warning=details?.seasonError{Text(warning).font(.footnote).foregroundStyle(.orange);Button("Retry episodes"){retry+=1}}
-        if item.kind != "movie",episodes.isEmpty{Text("No episodes are available from this provider yet.").font(.footnote).foregroundStyle(.secondary)}
-        if client.scopes.contains("downloads.write"){downloadControl}
+        if item.kind != "movie",episodes.isEmpty,!loadingDetails{Text("No episodes are available from this provider yet.").font(.footnote).foregroundStyle(.secondary)}
+        if client.scopes.contains("downloads.write"){downloadControl.frame(minHeight:44,alignment:.leading)}
     }.padding(18).background(FlyxTheme.card,in:.rect(cornerRadius:22)).overlay{RoundedRectangle(cornerRadius:22).stroke(.white.opacity(0.07))}}
     @ViewBuilder private var downloadControl:some View {
         if checkingDownload{Label("Checking download…",systemImage:"arrow.down.circle").font(.subheadline).foregroundStyle(.secondary)}

@@ -1,6 +1,9 @@
 import SwiftUI
 import Observation
 
+enum HomeLayout {static let inset:CGFloat=20;static let sectionSpacing:CGFloat=28;static let railSpacing:CGFloat=14;static let posterWidth:CGFloat=148;static let posterHeight:CGFloat=222;static let featuredHeight:CGFloat=360}
+
+
 struct HomeFeedEntry:Decodable,Identifiable,Sendable {
     let id:String
     let title:RemoteTitle
@@ -33,6 +36,8 @@ struct HomeFeedResponse:Decodable,Sendable {
     private var category="all"
     private var generation=UUID()
     private var cached:[String:HomeFeedResponse]=[:]
+    func represents(_ value:String)->Bool{category==value}
+    func visibleSections(for value:String)->[HomeFeedSection]{let source=category==value ? sections:(cached[value]?.sections ?? []);return source.filter{value=="all" || $0.kind==value}}
     func load(_ client:RemoteClient,category:String="all",refresh:Bool=false)async {
         if self.category != category {
             self.category=category;generation=UUID();loading=false;error=nil
@@ -69,17 +74,17 @@ struct HomeFeedResponse:Decodable,Sendable {
     @State private var path:[RemoteTitle]=[]
     @State private var category="all"
     private let categories=[("all","All"),("movie","Movies"),("tv","TV"),("anime","Anime"),("manga","Manga")]
-    private var sections:[HomeFeedSection]{feed.sections.filter{category=="all" || $0.kind==category}}
+    private var sections:[HomeFeedSection]{feed.visibleSections(for:category)}
     private var featured:HomeFeedEntry?{sections.lazy.flatMap(\.items).first}
     var body:some View {
         NavigationStack(path:$path){
             VStack(spacing:0){
                 if path.isEmpty{header}
                 ScrollView {
-                    LazyVStack(alignment:.leading,spacing:28){
-                        if feed.loading && feed.sections.isEmpty {HomeFeedSkeleton()}
+                    LazyVStack(alignment:.leading,spacing:HomeLayout.sectionSpacing){
+                        if sections.isEmpty && (!feed.represents(category) || (feed.error==nil && (feed.loading || feed.checkedAt==nil))) {HomeFeedSkeleton()}
                         else {
-                            if let message=feed.error{status(message)}
+                            if let message=feed.error,feed.represents(category){status(message)}
                             if let featured{HomeFeaturedCard(entry:featured,client:client,watchlist:watchlist).padding(.horizontal,20)}
                             if !watchlist.items.isEmpty,category=="all" {
                                 HomePosterRail(title:"Your watchlist",subtitle:"Saved on your Mac",entries:Array(watchlist.items.prefix(16)).map{HomeFeedEntry(id:$0.stableID,title:$0)},client:client,watchlist:watchlist)
@@ -145,7 +150,7 @@ private struct HomeFeaturedCard:View {
                 if !entry.title.overview.isEmpty{Text(entry.title.overview).font(.subheadline).foregroundStyle(.white.opacity(0.8)).lineLimit(2)}
                 NavigationLink(value:entry.title){Label(entry.title.kind=="manga" ? "Explore manga":"View details",systemImage:"arrow.up.right").font(.subheadline.bold()).padding(.horizontal,18).frame(minHeight:46).foregroundStyle(FlyxTheme.ink).background(FlyxTheme.accent,in:.capsule)}.buttonStyle(.plain)
             }.padding(20)
-        }.frame(height:360).background(.black).compositingGroup()
+        }.frame(height:HomeLayout.featuredHeight).background(.black).compositingGroup()
             .clipShape(RoundedRectangle(cornerRadius:24,style:.continuous),style:FillStyle(antialiased:true))
             .overlay(alignment:.topTrailing){WatchlistSaveButton(item:entry.title,model:watchlist,client:client).padding(12)}
     }
@@ -158,14 +163,14 @@ private struct HomePosterRail:View {
     let client:RemoteClient
     let watchlist:RemoteWatchlist
     var body:some View {
-        VStack(alignment:.leading,spacing:14){
-            VStack(alignment:.leading,spacing:4){Text(title).font(.title3.bold());Text(subtitle).font(.caption).foregroundStyle(.secondary)}.padding(.horizontal,20)
-            if !entries.isEmpty{ScrollView(.horizontal){LazyHStack(alignment:.top,spacing:14){ForEach(entries){entry in
+        VStack(alignment:.leading,spacing:HomeLayout.railSpacing){
+            HomeRailHeader(title:title,subtitle:subtitle)
+            if !entries.isEmpty{ScrollView(.horizontal){LazyHStack(alignment:.top,spacing:HomeLayout.railSpacing){ForEach(entries){entry in
                 ZStack(alignment:.topTrailing){
                     NavigationLink(value:entry.title){HomePosterCard(entry:entry)}.buttonStyle(.plain)
                     WatchlistSaveButton(item:entry.title,model:watchlist,client:client).padding(6)
-                }.frame(width:148)
-            }}.scrollTargetLayout()}.contentMargins(.horizontal,20,for:.scrollContent).scrollIndicators(.hidden).scrollTargetBehavior(.viewAligned)}
+                }.frame(width:HomeLayout.posterWidth)
+            }}.scrollTargetLayout()}.contentMargins(.horizontal,HomeLayout.inset,for:.scrollContent).scrollIndicators(.hidden).scrollTargetBehavior(.viewAligned)}
         }
     }
 }
@@ -173,11 +178,9 @@ private struct HomePosterRail:View {
 private struct HomePosterCard:View {
     let entry:HomeFeedEntry
     var body:some View {
-        VStack(alignment:.leading,spacing:8){
-            HomeArtwork(item:entry.title).frame(width:148,height:222).clipShape(.rect(cornerRadius:14))
-                .overlay(alignment:.bottomLeading){if let rank=entry.rank{Text(rank.formatted()).font(.system(size:44,weight:.black,design:.rounded)).foregroundStyle(FlyxTheme.accent).padding(.horizontal,10).background(.black.opacity(0.78),in:.rect(cornerRadius:10)).padding(7)}}
-            HomeTitleMetadata(item:entry.title)
-            Text(entry.title.title).font(.subheadline.weight(.semibold)).lineLimit(2).frame(height:42,alignment:.topLeading).frame(maxWidth:.infinity,alignment:.leading)
+        PosterCardSlots(posterHeight:HomeLayout.posterHeight,metadataHeight:16,titleHeight:42,cornerRadius:14,expandsMetadata:true){
+            HomeArtwork(item:entry.title).overlay(alignment:.bottomLeading){if let rank=entry.rank{Text(rank.formatted()).font(.system(size:44,weight:.black,design:.rounded)).foregroundStyle(FlyxTheme.accent).padding(.horizontal,10).background(.black.opacity(0.78),in:.rect(cornerRadius:10)).padding(7)}}
+        }metadata:{HomeTitleMetadata(item:entry.title)}title:{Text(entry.title.title).font(.subheadline.weight(.semibold)).lineLimit(2)
         }.accessibilityElement(children:.ignore).accessibilityLabel("\(entry.rank.map{"Rank \($0). "} ?? "")\(entry.title.title), \(homeKind(entry.title.kind))")
     }
 }
@@ -213,16 +216,21 @@ private struct HomeArtwork:View {
     .accessibilityHidden(true)}
 }
 
+private struct HomeRailHeader:View {
+    let title:String;let subtitle:String;var placeholder=false
+    var body:some View {VStack(alignment:.leading,spacing:4){Text(title).font(.title3.bold()).lineLimit(1);Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)}.redacted(reason:placeholder ? .placeholder:[]).padding(.horizontal,HomeLayout.inset)}
+}
+private struct HomePosterSkeletonCard:View {
+    var body:some View {PosterCardSlots(posterHeight:HomeLayout.posterHeight,metadataHeight:16,titleHeight:42,cornerRadius:14,expandsMetadata:true){Rectangle().fill(.white.opacity(0.06))}metadata:{HomeTitleMetadata(item:.init(id:"placeholder",kind:"movie",title:"",overview:"",posterURL:nil,rating:8.5,releaseDate:"2026")).redacted(reason:.placeholder)}title:{Text("Loading title\nSecond title line").font(.subheadline.weight(.semibold)).redacted(reason:.placeholder)}.frame(width:HomeLayout.posterWidth).accessibilityHidden(true)}
+}
 private struct HomeFeedSkeleton:View {
-    var body:some View {
-        VStack(alignment:.leading,spacing:28){
-            RoundedRectangle(cornerRadius:24).fill(.white.opacity(0.06)).frame(height:360).padding(.horizontal,20)
-            ForEach(0..<2,id:\.self){_ in VStack(alignment:.leading,spacing:14){
-                RoundedRectangle(cornerRadius:4).fill(.white.opacity(0.08)).frame(width:170,height:20).padding(.horizontal,20)
-                ScrollView(.horizontal){HStack(spacing:14){ForEach(0..<3,id:\.self){_ in VStack(alignment:.leading,spacing:8){RoundedRectangle(cornerRadius:14).fill(.white.opacity(0.06)).frame(width:148,height:222);RoundedRectangle(cornerRadius:4).fill(.white.opacity(0.06)).frame(width:125,height:12);RoundedRectangle(cornerRadius:4).fill(.white.opacity(0.06)).frame(width:90,height:12)}}}.padding(.horizontal,20)}.scrollDisabled(true).scrollIndicators(.hidden)
-            }}
-        }.loadingShimmer().allowsHitTesting(false).accessibilityElement(children:.ignore).accessibilityLabel("Loading Home")
-    }
+    var body:some View {VStack(alignment:.leading,spacing:HomeLayout.sectionSpacing){
+        ZStack(alignment:.bottomLeading){RoundedRectangle(cornerRadius:24,style:.continuous).fill(.white.opacity(0.06));VStack(alignment:.leading,spacing:10){Text("Featured category").font(.caption.bold());Text("Loading featured title").font(.title.bold());Text("Loading title metadata").font(.caption2);Text("Loading overview\nSecond overview line").font(.subheadline);Capsule().fill(.quaternary).frame(width:148,height:46)}.redacted(reason:.placeholder).padding(20)}.frame(height:HomeLayout.featuredHeight).padding(.horizontal,HomeLayout.inset)
+        ForEach(0..<2,id:\.self){_ in VStack(alignment:.leading,spacing:HomeLayout.railSpacing){
+            HomeRailHeader(title:"Loading section",subtitle:"Loading titles",placeholder:true)
+            ScrollView(.horizontal){HStack(alignment:.top,spacing:HomeLayout.railSpacing){ForEach(0..<3,id:\.self){_ in HomePosterSkeletonCard()}}}.contentMargins(.horizontal,HomeLayout.inset,for:.scrollContent).scrollDisabled(true).scrollIndicators(.hidden)
+        }}
+    }.loadingShimmer().allowsHitTesting(false).accessibilityElement(children:.ignore).accessibilityLabel("Loading Home")}
 }
 
 private func homeKind(_ kind:String)->String {
@@ -233,7 +241,7 @@ private func homeKind(_ kind:String)->String {
 /// One offline layout check for the clipped Home score and Browse badge.
 struct RatingClippingFixture:View {
     private let item=RemoteTitle(id:"rating-fixture",kind:"movie",title:"Rating layout",overview:"",posterURL:nil,rating:8.65,releaseDate:"2026-10-18")
-    var body:some View {NavigationStack{ScrollView{VStack(alignment:.leading,spacing:28){
+    var body:some View {NavigationStack{ScrollView{VStack(alignment:.leading,spacing:HomeLayout.sectionSpacing){
         Text("SYNTHETIC · NO NETWORK").font(.caption).foregroundStyle(.secondary)
         HStack(alignment:.top,spacing:18){sample(width:148,label:"Home · 148 pt");sample(width:128,label:"Home · 128 pt")}
         Text("Larger text").font(.headline)

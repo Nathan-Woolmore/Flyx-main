@@ -116,6 +116,7 @@ struct UIOnlyRoot:View {
    else if mode=="remote" || mode=="remote-cancel"{RemoteControlView(client:client)}
    else if mode.hasPrefix("downloads"){RemoteDownloadsView(client:client)}
    else if mode=="trailer-glass49"{TrailerPreviewFixture()}
+   else if mode.hasPrefix("skeleton51"){SkeletonGeometryFixture(mode:mode)}
    else if mode=="rating45"{RatingClippingFixture()}
    else{RemoteHomeView(client:client)}
   }.onAppear{TouchVerification.install()}.dynamicTypeSize(mode=="header-large" ? .accessibility1:.large).safeAreaInset(edge:.top){if !mode.hasPrefix("header") && mode != "pagination"{Text("PREVIEW · SYNTHETIC FIXTURES").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).frame(maxWidth:.infinity).padding(4)}}

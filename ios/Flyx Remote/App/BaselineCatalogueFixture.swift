@@ -11,7 +11,7 @@ struct BaselineCatalogueFixture: View {
     var body: some View {
         NavigationStack(path:$path) {ScrollViewReader{scroll in
                 ScrollView {
-                    LazyVGrid(columns:[GridItem(.flexible(),spacing:16),GridItem(.flexible(),spacing:16)],spacing:20) {
+                    LazyVGrid(columns:CatalogLayout.columns,spacing:CatalogLayout.rowSpacing) {
                         if browser.showsSkeleton {
                             ForEach(0..<8,id:\.self) { _ in CatalogSkeletonCard() }
                         } else {

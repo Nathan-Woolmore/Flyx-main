@@ -11,7 +11,7 @@ struct RemoteLibraryView: View {
     var body: some View {
         NavigationStack(path:$path) {ScrollViewReader{scroll in VStack(spacing:0){catalogueHeader.zIndex(100)
                 ScrollView {
-                    LazyVGrid(columns:[GridItem(.flexible(),spacing:16),GridItem(.flexible(),spacing:16)],spacing:20) {
+                    LazyVGrid(columns:CatalogLayout.columns,spacing:CatalogLayout.rowSpacing) {
                         if browser.showsSkeleton {
                             ForEach(0..<8,id:\.self) { _ in CatalogSkeletonCard() }
                         } else {
@@ -22,13 +22,13 @@ struct RemoteLibraryView: View {
                         }
                     }.loadingShimmer(browser.showsSkeleton).padding(.top,12).scrollTargetLayout()
                     if browser.isEmpty { ContentUnavailableView("No titles found",systemImage:"magnifyingglass",description:Text("Try a different search or reset the filters.")) }
-                    if browser.loadingMore {ProgressView("Loading more…").frame(maxWidth:.infinity,minHeight:48).accessibilityIdentifier("catalog.loading-more")}
+                    if browser.snapshot.nextPage != nil || browser.loadingMore {Group{if browser.loadingMore{ProgressView("Loading more…")}else{Color.clear} }.frame(maxWidth:.infinity,minHeight:48).accessibilityIdentifier("catalog.loading-more")}
                     if browser.snapshot.loaded && browser.snapshot.items.isEmpty && browser.snapshot.nextPage != nil && browser.error==nil {
                         ProgressView("Searching more provider results…").task(id:browser.snapshot.nextPage){await browser.loadAutomatically(near:nil){selection,page in try await client.catalog(selection,page:page)}}
                     }
                 }.scrollPosition(id:Binding(get:{browser.anchor},set:{browser.anchor=$0}))
                     .scrollDismissesKeyboard(.interactively)
-                    .padding(.horizontal,16)
+                    .padding(.horizontal,CatalogLayout.inset)
                     }
                     .background(.black)
                     .toolbar(path.isEmpty ? .hidden:.visible,for:.navigationBar)
@@ -61,32 +61,60 @@ struct RemoteLibraryView: View {
                 }.padding(.leading,14).background(FlyxTheme.card.opacity(0.85),in:.rect(cornerRadius:14))
                 if let error=browser.error {HStack{Text(error).lineLimit(2);Spacer();Button("Retry"){Task{await load(more:browser.snapshot.loaded)}}}.font(.caption).foregroundStyle(.orange).padding(.vertical,4)}
                 else if browser.request != CatalogRequest(kind:browser.request.kind){HStack{Text(browser.request.filters.activeCount>0 ? "\(browser.request.filters.activeCount) active filters":"Search results");Spacer();Button("Reset"){browser.reset()}}.font(.caption).foregroundStyle(.secondary).frame(minHeight:28)}
-                    }.padding(.horizontal,16).padding(.top,2).padding(.bottom,10).background{ZStack{Color.black.contentShape(Rectangle()).onTapGesture{searchFocused=false};CatalogueGlassHeader()}}.contentShape(Rectangle()).zIndex(100)}
+                    }.padding(.horizontal,CatalogLayout.inset).padding(.top,2).padding(.bottom,10).background{ZStack{Color.black.contentShape(Rectangle()).onTapGesture{searchFocused=false};CatalogueGlassHeader()}}.contentShape(Rectangle()).zIndex(100)}
     private func load(more:Bool=false) async {
         await browser.load(more:more){selection,page in try await client.catalog(selection,page:page)}
         if browser.snapshot.loaded {await ConnectionVerification.shared.loadedCatalog(itemCount:browser.snapshot.items.count)}
     }
 }
+enum CatalogLayout {
+    static let inset:CGFloat=16
+    static let columnSpacing:CGFloat=16
+    static let rowSpacing:CGFloat=20
+    static var columns:[GridItem]{[GridItem(.adaptive(minimum:132,maximum:220),spacing:columnSpacing)]}
+}
+
+/// The same poster, metadata and title slots back real cards and placeholders.
+struct PosterCardSlots<Poster:View,Metadata:View,Title:View>:View {
+    let poster:Poster;let metadata:Metadata;let title:Title
+    let fixedPosterHeight:CGFloat?;let cornerRadius:CGFloat;let expandsMetadata:Bool
+    @ScaledMetric private var metadataHeight:CGFloat
+    @ScaledMetric private var titleHeight:CGFloat
+    @Environment(\.dynamicTypeSize) private var dynamicType
+    init(posterHeight:CGFloat?=nil,metadataHeight:CGFloat=18,titleHeight:CGFloat=44,cornerRadius:CGFloat=12,expandsMetadata:Bool=false,@ViewBuilder poster:()->Poster,@ViewBuilder metadata:()->Metadata,@ViewBuilder title:()->Title){
+        self.poster=poster();self.metadata=metadata();self.title=title();fixedPosterHeight=posterHeight;self.cornerRadius=cornerRadius;self.expandsMetadata=expandsMetadata
+        _metadataHeight=ScaledMetric(wrappedValue:metadataHeight,relativeTo:.caption);_titleHeight=ScaledMetric(wrappedValue:titleHeight,relativeTo:.subheadline)
+    }
+    var body:some View {VStack(alignment:.leading,spacing:8){
+        posterSlot.clipShape(.rect(cornerRadius:cornerRadius))
+        metadata.frame(height:metadataHeight*(expandsMetadata && dynamicType.isAccessibilitySize ? 2:1),alignment:.leading)
+        title.frame(height:titleHeight,alignment:.topLeading).frame(maxWidth:.infinity,alignment:.leading)
+    }}
+    @ViewBuilder private var posterSlot:some View {
+        if let fixedPosterHeight{Color.clear.frame(height:fixedPosterHeight).overlay{poster}}
+        else{Color.clear.aspectRatio(2/3,contentMode:.fit).overlay{poster}}
+    }
+}
 struct CatalogCard:View {
     let item:RemoteTitle
-    var body:some View { VStack(alignment:.leading,spacing:8) {
-        RemotePoster(item:item).frame(height:220).clipShape(.rect(cornerRadius:12)).overlay(alignment:.bottomLeading){PosterRating(rating:item.rating).padding(8)}
-        HStack(spacing:4){Text(metadataDate);Spacer(minLength:0);if let votes=item.voteCount{Text("\(votes.formatted(.number.notation(.compactName))) ratings").accessibilityLabel("\(votes) rating votes")}}.font(.caption).foregroundStyle(.secondary).lineLimit(1).frame(minHeight:18,alignment:.leading)
-        Text(item.title).font(.subheadline.bold()).lineLimit(2).frame(height:44,alignment:.topLeading).frame(maxWidth:.infinity,alignment:.leading)
-    } }
+    var body:some View {PosterCardSlots{
+        RemotePoster(item:item).overlay(alignment:.bottomLeading){PosterRating(rating:item.rating).padding(8)}
+    }metadata:{
+        HStack(spacing:4){Text(metadataDate);Spacer(minLength:0);if let votes=item.voteCount{Text("\(votes.formatted(.number.notation(.compactName))) ratings").accessibilityLabel("\(votes) rating votes")}}.font(.caption).foregroundStyle(.secondary).lineLimit(1)
+    }title:{Text(item.title).font(.subheadline.bold()).lineLimit(2)}}
     private var metadataDate:String {
         guard let raw=item.releaseDate else{return " "}
-        if raw.count>=10,let date=try? Date(String(raw.prefix(10)),strategy:.iso8601.year().month().day().dateSeparator(.dash)) {return date.formatted(.dateTime.day().month(.abbreviated).year())}
+        if raw.count>=10,let date=try? Date(String(raw.prefix(10)),strategy:.iso8601.year().month().day().dateSeparator(.dash)){return date.formatted(.dateTime.day().month(.abbreviated).year())}
         return String(raw.prefix(4))
     }
 }
 struct CatalogSkeletonCard:View {
-    var body:some View {VStack(alignment:.leading,spacing:8){
-        RoundedRectangle(cornerRadius:12).fill(.quaternary).frame(height:220)
-        RoundedRectangle(cornerRadius:3).fill(.quaternary).frame(width:100,height:12).frame(height:18)
-        VStack(alignment:.leading,spacing:7){RoundedRectangle(cornerRadius:3).fill(.quaternary).frame(height:12);RoundedRectangle(cornerRadius:3).fill(.quaternary).frame(width:90,height:12)}.frame(height:44,alignment:.top)
-    }.accessibilityLabel("Loading title").allowsHitTesting(false)}
+    var body:some View {PosterCardSlots{Rectangle().fill(.quaternary)}metadata:{
+        Text("Loading date").font(.caption).redacted(reason:.placeholder)
+    }title:{Text("Loading title\nSecond title line").font(.subheadline.bold()).redacted(reason:.placeholder)}
+        .accessibilityElement(children:.ignore).accessibilityLabel("Loading title").allowsHitTesting(false)}
 }
+
 struct CatalogFilterSheet:View {
     let request:CatalogRequest
     let apply:(CatalogFilters)->Void
@@ -146,3 +174,18 @@ struct RemotePoster:View {
         }.transaction{$0.animation=nil}
     }
 }
+
+#if DEBUG
+struct SkeletonGeometryFixture:View {
+    let mode:String
+    private var kinds:[String]{mode.contains("landscape") ? ["tv","manga"]:["movie","anime"]}
+    var body:some View {ScrollView{VStack(alignment:.leading,spacing:16){
+        Text("SKELETON / LOADED · SHARED GEOMETRY").font(.caption)
+        LazyVGrid(columns:CatalogLayout.columns,spacing:CatalogLayout.rowSpacing){ForEach(kinds,id:\.self){kind in
+            CatalogSkeletonCard().loadingShimmer().onGeometryChange(for:CGSize.self,of:{$0.size}){size in UIOnlyProtocol.probe(["skeleton-"+kind:[size.width,size.height]])}
+            CatalogCard(item:.init(id:kind,kind:kind,title:kind.capitalized+" sample\nSecond title line",overview:"",posterURL:nil,rating:8.5,releaseDate:"2026-10-18",voteCount:1200)).onGeometryChange(for:CGSize.self,of:{$0.size}){size in UIOnlyProtocol.probe(["loaded-"+kind:[size.width,size.height]])}
+        }}
+    }.padding(CatalogLayout.inset).frame(maxWidth:mode.contains("small") ? 320:.infinity).frame(maxWidth:.infinity)}.background(.black)
+        .task{if mode.contains("landscape"){for case let scene as UIWindowScene in UIApplication.shared.connectedScenes{scene.requestGeometryUpdate(.iOS(interfaceOrientations:.landscapeLeft))}}}}
+}
+#endif

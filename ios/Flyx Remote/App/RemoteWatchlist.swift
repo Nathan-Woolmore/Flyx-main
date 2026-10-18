@@ -36,7 +36,7 @@ struct RemoteWatchlistView:View {
         VStack(alignment:.leading,spacing:16){
             if !model.canWrite {Text("Allow Watchlist saving for this phone in Flyx on Mac → Settings → Security. Existing saved titles remain browsable.").font(.footnote).foregroundStyle(.secondary)}
             if let error=model.error {Text(error).foregroundStyle(.orange);Button("Retry"){Task{await model.refresh(client)}}}
-            LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20){
+            LazyVGrid(columns:CatalogLayout.columns,spacing:CatalogLayout.rowSpacing){
                 ForEach(model.items,id:\.stableID){item in ZStack(alignment:.topLeading){NavigationLink{RemoteDetailView(client:client,item:item,watchlist:model)}label:{CatalogCard(item:item)}.buttonStyle(.plain);WatchlistSaveButton(item:item,model:model,client:client).padding(8)}}
             }
             if model.items.isEmpty && !model.loading && model.error == nil {ContentUnavailableView("Your Mac watchlist is empty",systemImage:"bookmark",description:Text("Save titles from Browse or their details."))}

@@ -121,7 +121,7 @@ struct PlayerPresentation:Identifiable {let id=UUID();let selection:PhonePlaybac
         Section("Playback destination"){
             Button{run{try await switchToMac()}}label:{Label("Mac",systemImage:"desktopcomputer")}.disabled(busy || (!phoneActive && !(transferV2 && status?.output=="tv")))
             Button{run{try await switchToPhone()}}label:{Label("This iPhone",systemImage:"iphone")}.disabled(busy || !active || phoneActive || (!transferV2 && (status?.output=="tv" || (!startsOnPhone && status?.phonePlayback != true))))
-            Button{receiverPicker=true}label:{Label("Cast to TV…",systemImage:"tv")}.disabled(busy || !active || !transferV2 || (!phoneActive && status?.output=="tv")).accessibilityIdentifier("player.cast")
+            Button{receiverPicker=true}label:{Label("Cast to TV",systemImage:"tv")}.disabled(busy || !active || !transferV2 || (!phoneActive && status?.output=="tv")).accessibilityIdentifier("player.cast")
             if status?.output=="tv",!transferV2{Text("TV → Mac/iPhone handoff is not supported by this installed bridge. The TV remains unchanged.").font(.footnote).foregroundStyle(.secondary)}
         }
         if !transferV2{Text("Cast transfers are unavailable on this Mac bridge.").font(.footnote).foregroundStyle(.secondary)}
