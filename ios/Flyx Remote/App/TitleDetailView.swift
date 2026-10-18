@@ -58,7 +58,11 @@ struct RemoteDetailView:View {
             if loadingDetails{VStack(spacing:12){ForEach(0..<3,id:\.self){_ in RoundedRectangle(cornerRadius:8).fill(.quaternary).frame(height:44)}}.loadingShimmer().accessibilityLabel("Loading title details")}
             if let message{Text(message).font(.footnote).foregroundStyle(FlyxTheme.accent)}
             if let error{VStack(alignment:.leading,spacing:8){Text(error).font(.footnote).foregroundStyle(.orange);Button("Retry details"){retry+=1}}}
+            if item.kind=="movie" || item.kind=="tv"{AudienceReviewsSection(client:client,item:item).id(item.stableID)}
         }.padding(24)}.background(.black).navigationBarTitleDisplayMode(.inline)
+            #if DEBUG
+            .defaultScrollAnchor(ProcessInfo.processInfo.arguments.contains("details-reviews50") ? .bottom:.top)
+            #endif
             .fullScreenCover(item:$playerPresentation){value in RemoteControlView(client:client,initialSelection:value.selection,initialItem:item,startsOnPhone:value.phone,initialPosition:value.position,showClose:true).environment(\.playbackSession,session)}
             .task(id:"\(selectedSeason.map(String.init) ?? "default"):\(retry)"){await loadDetails()}
             .task(id:downloadKey){while !Task.isCancelled{await refreshDownloadState();do{try await Task.sleep(for:.seconds(5))}catch{return}}}
@@ -200,4 +204,53 @@ private struct YouTubeTrailerPlayer:UIViewRepresentable {
         func webView(_ webView:WKWebView,didFail navigation:WKNavigation!,withError error:Error){failed.wrappedValue=true}
         func webView(_ webView:WKWebView,didFailProvisionalNavigation navigation:WKNavigation!,withError error:Error){failed.wrappedValue=true}
     }
+}
+
+private struct AudienceReview:Decodable,Identifiable,Sendable {
+    let id:String;let author:String;let text:String;let rating:Double?;let createdAt:String?;let url:String
+    var originalURL:URL?{guard let value=URL(string:url),value.scheme=="https",value.host=="www.themoviedb.org",value.path=="/review/"+id,value.user==nil,value.password==nil else{return nil};return value}
+    var date:Date?{guard let createdAt else{return nil};return (try? Date.ISO8601FormatStyle(includingFractionalSeconds:true).parse(createdAt)) ?? (try? Date.ISO8601FormatStyle().parse(createdAt))}
+}
+private struct AudienceReviewPage:Decodable {let items:[AudienceReview];let order:String;let page:Int;let nextPage:Int?;let total:Int?}
+private struct AudienceReviewsSection:View {
+    let client:RemoteClient;let item:RemoteTitle
+    @State private var reviews:[AudienceReview]=[]
+    @State private var nextPage:Int?=1
+    @State private var loading=false
+    @State private var error:String?
+    @State private var credits=false
+    var body:some View {VStack(alignment:.leading,spacing:0){if !reviews.isEmpty || loading || error != nil{VStack(alignment:.leading,spacing:14){
+        HStack{Text("Audience reviews").font(.title3.bold());Spacer();Image("TMDBLogo").resizable().scaledToFit().frame(width:54,height:22).accessibilityLabel("TMDB")}
+        Text("TMDB order").font(.caption).foregroundStyle(.secondary)
+        LazyVStack(spacing:12){ForEach(reviews){review in AudienceReviewCard(review:review)}}
+        if loading{ProgressView("Loading reviews…").font(.caption).frame(maxWidth:.infinity)}
+        if let error{Text(error).font(.footnote).foregroundStyle(.secondary);Button("Retry reviews"){Task{await load()}}.disabled(loading)}
+        else if !reviews.isEmpty,nextPage != nil{Button("Load more reviews"){Task{await load()}}.frame(minHeight:44).disabled(loading)}
+        Button("TMDB credits"){credits=true}.font(.caption).foregroundStyle(.secondary)
+    }}}
+    .task{
+        struct Features:Decodable{let features:[String]?}
+        do{let info:Features=try await client.request("/remote/v1/info");try Task.checkCancellation();if info.features?.contains("catalog.reviews.v1")==true{await load()}}catch{}
+    }
+    .sheet(isPresented:$credits){NavigationStack{VStack(alignment:.leading,spacing:20){Image("TMDBLogo").resizable().scaledToFit().frame(width:120,height:50).accessibilityLabel("TMDB");Text("This product uses the TMDB API but is not endorsed or certified by TMDB.");Link("TMDB",destination:URL(string:"https://www.themoviedb.org")!);Spacer()}.padding(24).navigationTitle("Credits").navigationBarTitleDisplayMode(.inline)}.presentationDetents([.medium]).presentationDragIndicator(.visible)}
+    }
+    private func load()async{
+        guard !loading,let page=nextPage else{return};loading=true;error=nil;defer{loading=false}
+        do{
+            let result:AudienceReviewPage=try await client.request("/remote/v1/reviews",query:[.init(name:"kind",value:item.kind),.init(name:"id",value:item.id),.init(name:"page",value:String(page))]);try Task.checkCancellation()
+            guard result.page==page,result.order=="tmdb" else{throw RemoteFailure(message:"Reviews unavailable")}
+            var seen=Set(reviews.map(\.id));reviews.append(contentsOf:result.items.filter{seen.insert($0.id).inserted});nextPage=result.nextPage
+        }catch is CancellationError{}catch{if !Task.isCancelled{self.error="Reviews are temporarily unavailable."}}
+    }
+}
+private struct AudienceReviewCard:View {
+    let review:AudienceReview
+    @State private var expanded=false
+    private var compact:String{review.text.replacingOccurrences(of:"\\s+",with:" ",options:.regularExpression)}
+    private var preview:String{String(compact.prefix(320))+(compact.count>320 ? "…":"")}
+    var body:some View {VStack(alignment:.leading,spacing:10){
+        HStack(alignment:.top){VStack(alignment:.leading,spacing:4){Text(verbatim:review.author).font(.subheadline.bold()).lineLimit(2);if let date=review.date{Text(date,format:.dateTime.day().month(.abbreviated).year()).font(.caption).foregroundStyle(.secondary)}};Spacer(minLength:8);if let rating=review.rating{HStack(spacing:4){Image(systemName:"star.fill");Text(rating.formatted(.number.precision(.fractionLength(1)))+"/10")}.font(.caption.weight(.semibold)).foregroundStyle(FlyxTheme.accent).fixedSize()}}
+        Text(verbatim:expanded ? review.text:preview).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true).textSelection(.enabled)
+        HStack{if compact.count>320{Button(expanded ? "Show less":"Read more"){expanded.toggle()}};Spacer();if let url=review.originalURL{Link("Original review",destination:url)}}.font(.caption.weight(.semibold)).frame(minHeight:32)
+    }.padding(16).frame(maxWidth:.infinity,alignment:.leading).background(FlyxTheme.card,in:.rect(cornerRadius:18))}
 }

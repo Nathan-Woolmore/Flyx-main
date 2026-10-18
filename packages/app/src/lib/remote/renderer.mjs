@@ -1,4 +1,4 @@
-const catalogPaths = new Set(['/api/content/home','/api/content/search','/api/content/details','/api/content/season','/api/anime/jikan','/api/manga/popular','/api/manga/search','/api/manga/details','/api/tmdb']);
+const catalogPaths = new Set(['/api/content/reviews','/api/content/home','/api/content/search','/api/content/details','/api/content/season','/api/anime/jikan','/api/manga/popular','/api/manga/search','/api/manga/details','/api/tmdb']);
 export function watchTarget(command) {
   const query=new URLSearchParams({[command.kind === 'anime' ? 'malId' : 'tmdbId']:String(command.contentID),mediaType:command.kind === 'movie' ? 'movie' : 'tv'});
   if(command.kind !== 'movie') {query.set('season',String(command.season ?? 1));query.set('episode',String(command.episode));}

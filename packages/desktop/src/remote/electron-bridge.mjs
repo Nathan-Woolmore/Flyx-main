@@ -1,4 +1,5 @@
 import {publicSourceInfo} from './source-info.mjs';
+import {createReviews} from './reviews.mjs';
 import {createHome} from './home.mjs';
 import {createRemoteProgress} from './progress.mjs';
 import {createRemoteSources} from './sources.mjs';
@@ -55,6 +56,7 @@ export function installRemoteBridge({audioLocked = false, mediaOrigin, handleTru
   local('flyx:remote-transport-start',()=>startTransport(true));
   local('flyx:remote-transport-stop',()=>stopTransport(true));
   const catalog=createCatalog(path=>request('catalog',{path}));
+  const reviews=createReviews(path=>request('catalog',{path}));
   const home=createHome(path=>request('catalog',{path}));
   const downloads=createDownloads(spec=>request('downloads',spec),catalog);
   const watchlist=createWatchlist(spec=>request('watchlist',spec),catalog);
@@ -63,6 +65,6 @@ export function installRemoteBridge({audioLocked = false, mediaOrigin, handleTru
   const progress=phoneMedia?createRemoteProgress(spec=>request('progress',spec),phoneMedia):undefined;
   const transfers=phoneMedia?createTransferRuntime(spec=>request('transfer',spec),phoneMedia,{onOriginSnapshot:source=>progress.recordSnapshot(source)}):undefined;
   const sources=createRemoteSources(spec=>request('sources',spec));
-  const handleRequest=createRemoteHandler({home,progress,sources,transfers,core,pairing,catalog,downloads,watchlist,manga,phoneMedia,pendingSession:token=>deviceStore?.pendingToken(token)??false,status:async()=>{const value=await request('status',{});return{...value,sourceInfo:publicSourceInfo(value.sourceInfo),audioControl:!audioLocked};}});
+  const handleRequest=createRemoteHandler({reviews,home,progress,sources,transfers,core,pairing,catalog,downloads,watchlist,manga,phoneMedia,pendingSession:token=>deviceStore?.pendingToken(token)??false,status:async()=>{const value=await request('status',{});return{...value,sourceInfo:publicSourceInfo(value.sourceInfo),audioControl:!audioLocked};}});
   return {handle:handleRequest, resume:()=>startTransport(false), async dispose(){ await transfers?.dispose();await stopTransport(false); for(const p of waiting.values()){clearTimeout(p.timer);p.reject(new Error('Bridge stopped'));} waiting.clear(); }};
 }

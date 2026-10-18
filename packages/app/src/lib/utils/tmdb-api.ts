@@ -108,6 +108,8 @@ class TmdbApi {
   /**
    * Get season details for a TV show.
    */
+  async getReviews(id:string,mediaType:'movie'|'tv',page=1):Promise<any>{return this.fetch(`/${mediaType}/${id}/reviews`,{page},AbortSignal.timeout(12000));}
+
   async getSeasonDetails(tvId: string, seasonNumber: number): Promise<any> {
     return this.fetch(`/tv/${tvId}/season/${seasonNumber}`);
   }
