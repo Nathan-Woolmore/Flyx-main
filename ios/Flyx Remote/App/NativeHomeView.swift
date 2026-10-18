@@ -30,22 +30,33 @@ struct HomeFeedResponse:Decodable,Sendable {
     private(set) var error:String?
     private(set) var requiresUpdate=false
     private(set) var checkedAt:Date?
-    func load(_ client:RemoteClient,refresh:Bool=false)async {
+    private var category="all"
+    private var generation=UUID()
+    private var cached:[String:HomeFeedResponse]=[:]
+    func load(_ client:RemoteClient,category:String="all",refresh:Bool=false)async {
+        if self.category != category {
+            self.category=category;generation=UUID();loading=false;error=nil
+            sections=cached[category]?.sections ?? []
+            checkedAt=cached[category].map{Date(timeIntervalSince1970:$0.checkedAt/1000)}
+        }
         guard !loading,refresh || (checkedAt.map({Date().timeIntervalSince($0)>180}) ?? true) else{return}
-        loading=true;defer{loading=false}
+        let ticket=generation;loading=true;defer{if generation==ticket{loading=false}}
         do {
             struct Features:Decodable {var features:[String]?}
             let info:Features=try await client.request("/remote/v1/info")
-            try Task.checkCancellation()
-            guard info.features?.contains("catalog.home.v1")==true else {
-                requiresUpdate=true;error="Update Flyx on your Mac to load Home. Browse is still available.";return
+            try Task.checkCancellation();guard generation==ticket else{return}
+            guard info.features?.contains("catalog.home.v1")==true,(category=="all" || info.features?.contains("catalog.home.categories.v1")==true) else {
+                requiresUpdate=true;error="Update Flyx on your Mac to load these Home sections. Browse is still available.";return
             }
-            let response:HomeFeedResponse=try await client.request("/remote/v1/home",query:refresh ? [.init(name:"refresh",value:"1")]:[])
-            try Task.checkCancellation()
-            sections=response.sections;checkedAt=Date(timeIntervalSince1970:response.checkedAt/1000);requiresUpdate=false;error=nil
+            var query:[URLQueryItem]=[]
+            if category != "all"{query.append(.init(name:"category",value:category))}
+            if refresh{query.append(.init(name:"refresh",value:"1"))}
+            let response:HomeFeedResponse=try await client.request("/remote/v1/home",query:query)
+            try Task.checkCancellation();guard generation==ticket else{return}
+            sections=response.sections;cached[category]=response;checkedAt=Date(timeIntervalSince1970:response.checkedAt/1000);requiresUpdate=false;error=nil
             await ConnectionVerification.shared.loadedHome(rows:Dictionary(uniqueKeysWithValues:response.sections.map{($0.id,$0.items.count)}),staleRows:response.sections.filter(\.stale).count)
         } catch is CancellationError { }
-        catch {if !Task.isCancelled{self.error=sections.isEmpty ? error.localizedDescription:"Could not refresh Home. Showing previously loaded titles."}}
+        catch {if !Task.isCancelled,generation==ticket{self.error=sections.isEmpty ? error.localizedDescription:"Could not refresh Home. Showing previously loaded titles."}}
     }
 }
 
@@ -83,20 +94,17 @@ struct HomeFeedResponse:Decodable,Sendable {
                             if feed.sections.isEmpty && feed.error==nil {
                                 ContentUnavailableView("Home is quiet",systemImage:"house",description:Text("Pull down to refresh the Mac catalogue."))
                             }
-                            if !feed.sections.isEmpty {
-                                VStack(alignment:.leading,spacing:6){
-                                    Text("Ranked movies follow the TMDB weekly trending order. Other rows keep their catalogue order.")
-                                    if let date=feed.checkedAt{Text("Feed checked \(date,style:.relative) ago")}
-                                }.font(.caption2).foregroundStyle(.secondary).padding(.horizontal,20)
-                            }
                         }
                     }.padding(.top,12).padding(.bottom,28)
-                }.refreshable{await feed.load(client,refresh:true)}
+                }.refreshable{await feed.load(client,category:category,refresh:true)}
+                #if DEBUG
+                .defaultScrollAnchor(ProcessInfo.processInfo.arguments.contains("home-footer46") ? .bottom:.top)
+                #endif
             }.background(FlyxTheme.background)
                 .toolbar(path.isEmpty ? .hidden:.visible,for:.navigationBar)
                 .navigationDestination(for:RemoteTitle.self){RemoteDetailView(client:client,item:$0,watchlist:watchlist)}
-                .task{await feed.load(client)}
-                .onChange(of:scenePhase){_,phase in if phase == .active,path.isEmpty{Task{await feed.load(client)}}}
+                .task(id:category){await feed.load(client,category:category)}
+                .onChange(of:scenePhase){_,phase in if phase == .active,path.isEmpty{Task{await feed.load(client,category:category)}}}
         }
     }
     private var header:some View {
@@ -117,7 +125,7 @@ struct HomeFeedResponse:Decodable,Sendable {
     private func status(_ message:String)->some View {
         VStack(alignment:.leading,spacing:10){
             Label(message,systemImage:feed.requiresUpdate ? "desktopcomputer":"wifi.exclamationmark").font(.subheadline).foregroundStyle(.secondary)
-            HStack{Button("Retry"){Task{await feed.load(client,refresh:true)}}.frame(minHeight:44).disabled(feed.loading);Spacer();Button("Open Browse"){playback?.selectedTab="browse"}.frame(minHeight:44)}
+            HStack{Button("Retry"){Task{await feed.load(client,category:category,refresh:true)}}.frame(minHeight:44).disabled(feed.loading);Spacer();Button("Open Browse"){playback?.selectedTab="browse"}.frame(minHeight:44)}
         }.padding(16).background(FlyxTheme.card,in:.rect(cornerRadius:16)).padding(.horizontal,20)
     }
 }

@@ -24,6 +24,12 @@ export const MAC_HOME_FEEDS = [
   { id:"now-playing", kind:"movie", title:"Now playing", subtitle:"TMDB now-playing movies", path:"/movie/now_playing", ranked:false },
 ] as const;
 
-export async function loadMacHomeLists() {
-  return Promise.all(MAC_HOME_FEEDS.map(feed => tmdbFetch<TMDBList>(feed.path)));
+// TV uses the same weekly Home and popular Browse endpoints as the Mac.
+export const MAC_TV_HOME_FEEDS = [
+  MAC_HOME_FEEDS[3],
+  {id:"popular-tv",kind:"tv",title:"Popular series",subtitle:"Discover your next series",path:"/tv/popular?page=1",ranked:false},
+] as const;
+type HomeFeed = {readonly path:string};
+export async function loadMacHomeLists(feeds:readonly HomeFeed[]=MAC_HOME_FEEDS) {
+  return Promise.all(feeds.map(feed => tmdbFetch<TMDBList>(feed.path)));
 }
