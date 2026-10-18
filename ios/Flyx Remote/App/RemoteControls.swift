@@ -32,11 +32,11 @@ struct RemoteHomeView:View {
  let client:RemoteClient
  @State private var watchlist=RemoteWatchlist()
  @State private var playback=PlaybackSession()
- var body:some View {TabView {
-  Tab("Browse",systemImage:"square.grid.2x2"){RemoteLibraryView(client:client,watchlist:watchlist)}
-  Tab("Watchlist",systemImage:"bookmark"){RemoteWatchlistView(client:client,model:watchlist)}
-  Tab("Remote",systemImage:"play.rectangle"){RemoteControlView(client:client)}
-  if client.scopes.contains("downloads.read") {Tab("Downloads",systemImage:"arrow.down.circle"){RemoteDownloadsView(client:client)}}
+ var body:some View {TabView(selection:$playback.selectedTab) {
+  Tab("Browse",systemImage:"square.grid.2x2",value:"browse"){RemoteLibraryView(client:client,watchlist:watchlist)}
+  Tab("Watchlist",systemImage:"bookmark",value:"watchlist"){RemoteWatchlistView(client:client,model:watchlist)}
+  Tab("Remote",systemImage:"play.rectangle",value:"remote"){RemoteControlView(client:client)}
+  if client.scopes.contains("downloads.read") {Tab("Downloads",systemImage:"arrow.down.circle",value:"downloads"){RemoteDownloadsView(client:client)}}
  }.environment(\.playbackSession,playback).task{await watchlist.refresh(client)}}
 }
 struct RemoteDownloadsView:View {
@@ -88,7 +88,7 @@ struct RemoteDownloadsView:View {
   let current:RemoteDownloadList=try await client.request("/remote/v1/downloads");jobs=current.jobs
   guard let fresh=current.jobs.first(where:{$0.id==job.id}),fresh.playable,fresh.selection?.id==selection.id else{throw RemoteFailure(message:"This download is no longer ready. Refresh or relink the saved file on your Mac.")}
   playingItem=fresh.displayTitle
-  if destination != "phone"{let result=try await client.play(fresh.displayTitle,season:selection.season,episode:selection.episode);guard result.ok,result.status.state=="playing"else{throw RemoteFailure(message:"The Mac did not confirm playback.")};session.status=result.status;session.phoneActive=false;if destination=="tv"{try await session.switchOutput(client,to:"tv",receiverID:receiverID)}}
+  if destination != "phone"{let result=try await client.play(fresh.displayTitle,season:selection.season,episode:selection.episode);guard result.ok,result.status.state=="playing"else{throw RemoteFailure(message:"The Mac did not confirm playback.")};session.status=result.status;session.phoneActive=false;if destination=="tv"{try await session.switchOutput(client,to:"tv",receiverID:receiverID);if sharedSession != nil{return}}}
   presentation=PlayerPresentation(selection:selection,phone:destination=="phone")
  }catch{self.error=error.localizedDescription}}}
 }

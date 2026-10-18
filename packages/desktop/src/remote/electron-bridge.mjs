@@ -18,7 +18,7 @@ export function installRemoteBridge({audioLocked = false, mediaOrigin, handleTru
     if (waiting.size >= 16) return Promise.reject(new Error('Mac busy'));
     const requestID = makeID();
     return new Promise((resolve,reject) => {
-      const timer=setTimeout(() => {waiting.delete(requestID);reject(action==='catalog'?catalogFailure('CATALOG_TIMEOUT'):new Error('Mac renderer timed out'));},timeoutMS);
+      const timer=setTimeout(() => {waiting.delete(requestID);reject(action==='catalog'?catalogFailure('CATALOG_TIMEOUT'):playbackFailure('MAC_RENDERER_TIMEOUT'));},timeoutMS);
       waiting.set(requestID,{resolve,reject,timer,action});
       try { send('flyx:remote-request',{requestID,action,payload}); }
       catch(error) {clearTimeout(timer);waiting.delete(requestID);reject(error);}
@@ -30,7 +30,7 @@ export function installRemoteBridge({audioLocked = false, mediaOrigin, handleTru
   local('flyx:remote-reply', reply => {
     const pending=waiting.get(reply?.requestID); if(!pending) return;
     waiting.delete(reply.requestID); clearTimeout(pending.timer);
-    reply.ok ? pending.resolve(reply.data) : pending.reject(playbackMessages[reply.errorCode]?playbackFailure(reply.errorCode):['catalog','watchlist','manga'].includes(pending.action)?catalogFailure(catalogMessages[reply.errorCode]?reply.errorCode:'CATALOG_UNAVAILABLE'):new Error('Mac operation failed'));
+    reply.ok ? pending.resolve(reply.data) : pending.reject(playbackMessages[reply.errorCode]?playbackFailure(reply.errorCode):['catalog','watchlist','manga'].includes(pending.action)?catalogFailure(catalogMessages[reply.errorCode]?reply.errorCode:'CATALOG_UNAVAILABLE'):playbackFailure('MAC_OPERATION_FAILED'));
   });
   local('flyx:remote-pair-begin',()=>pairing.begin());
   local('flyx:remote-approval-state',()=>pairing.snapshot());

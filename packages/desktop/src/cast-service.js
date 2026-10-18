@@ -140,7 +140,7 @@ class CastService extends EventEmitter {
       this.update({ isConnected: true, connectionID:this.generation,deviceID:device.address,lastError: null }); return { ok: true };
     } catch (error) {
       if (current()) { this.transport = null; transport.close(); this.update({ ...empty(), lastError: error.message }); }
-      return { ok: false, error: error.message || "Could not connect to the TV." };
+      return { ok: false, error: error.message || "Could not connect to the TV.", errorCode:error.code || "CAST_CONNECT_FAILED" };
     }
   }
   async load(payload) {
@@ -153,7 +153,7 @@ class CastService extends EventEmitter {
       return { ok: true,mediaSessionID:loaded?.mediaSessionId??this.state.mediaSessionID,connectionID:generation };
     } catch (error) {
       if (generation === this.generation) { await this.disconnect(); this.update({ lastError: error.message }); }
-      return { ok: false, error: error.message || "Could not load the movie on the TV." };
+      return { ok: false, error: error.message || "Could not load the movie on the TV.", errorCode:error.code || "CAST_LOAD_FAILED" };
     }
   }
   async control(payload) {

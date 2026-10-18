@@ -182,9 +182,9 @@ class CastTransport extends EventEmitter {
           this.pending.delete(data.requestId); clearTimeout(pending.timer);
           if (["LOAD_FAILED", "LOAD_CANCELLED", "LAUNCH_ERROR", "INVALID_REQUEST"].includes(data.type)) {
             // Do not echo receiver error fields: they can contain stream URLs.
-            pending.reject(new Error(data.type === "LOAD_FAILED"
+            pending.reject(Object.assign(new Error(data.type === "LOAD_FAILED"
               ? "The TV could not play this source. Try another source or quality; the TV must support its codec."
-              : "The TV rejected the Cast request. Check its Google Cast receiver and try again."));
+              : "The TV rejected the Cast request. Check its Google Cast receiver and try again."), {code:data.type === "LOAD_FAILED" ? "CAST_LOAD_FAILED":"CAST_REQUEST_REJECTED"}));
           } else pending.resolve(data);
         }
         if (namespace === NS.media && data.type === "MEDIA_STATUS") {
@@ -225,7 +225,7 @@ class CastTransport extends EventEmitter {
       const mute = typeof volume?.muted === "boolean" ? String(volume.muted) : "not reported";
       const level = Number.isFinite(volume?.level) && volume.level >= 0 && volume.level <= 1
         ? String(volume.level) : "not reported";
-      throw new Error(`The TV did not confirm silent playback (muted: ${mute}; volume: ${level}). Set the TV's own volume to zero and mute, then reconnect. No media was loaded.`);
+      throw Object.assign(new Error(`The TV did not confirm silent playback (muted: ${mute}; volume: ${level}). Set the TV's own volume to zero and mute, then reconnect. No media was loaded.`), {code:"CAST_SILENT_UNCONFIRMED"});
     }
     this.silentVerified = true;
   }

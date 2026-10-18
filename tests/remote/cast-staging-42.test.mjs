@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {createRendererTransfers} from '../../packages/app/src/lib/remote/renderer-transfers.mjs';
+function fixture(stall=false){let clock=0;const calls=[];let state={connectionID:1,mediaSessionID:null,playerState:'IDLE',isCasting:false};
+const cast={getState:async()=>({...state}),connect:async()=>({ok:true}),load:async payload=>{calls.push(['load',payload.autoplay]);state={...state,mediaSessionID:7,playerState:'BUFFERING',isCasting:true};return{ok:true,mediaSessionID:7}},control:async()=>({ok:true}),disconnect:async()=>{calls.push(['disconnect']);return{ok:true}}};
+const run=createRendererTransfers({player:{},cast,currentSource:()=>({}),resolveCastMedia:async()=>({url:'http://192.168.1.2/fixture',contentType:'video/mp4'}),now:()=>clock,prepareTimeoutMS:200,delay:async ms=>{clock+=ms;if(!stall&&clock>=100)state.playerState='PAUSED';}});
+return{run,calls};}
+test('receiver BUFFERING after LOAD is awaited until its exact media session becomes PAUSED',async()=>{const f=fixture();assert.deepEqual(await f.run({method:'prepare',id:'transfer',destination:'tv',receiverID:'fixture',origin:{position:12}}),{ticket:'transfer'});assert.deepEqual(f.calls,[['load',false]]);});
+test('a receiver that never becomes ready reports timeout, never false success, and can be cleaned up',async()=>{const f=fixture(true);await assert.rejects(f.run({method:'prepare',id:'transfer',destination:'tv',receiverID:'fixture',origin:{position:12}}),e=>e.code==='CAST_READY_TIMEOUT');await f.run({method:'cleanup',id:'transfer'});assert.deepEqual(f.calls,[['load',false],['disconnect']]);});

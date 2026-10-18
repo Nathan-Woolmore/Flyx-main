@@ -1,4 +1,12 @@
 export const playbackMessages={
+  CAST_CONNECT_FAILED:'The Mac could not connect to the selected TV. Keep it awake on the same network and retry.',
+  CAST_LOAD_FAILED:'The TV could not load this source. Try another source or quality; the original output is retained.',
+  CAST_REQUEST_REJECTED:'The TV rejected the Cast request. Refresh receivers and retry.',
+  CAST_SILENT_UNCONFIRMED:'The TV did not confirm the existing mute and zero-volume policy. No media was loaded.',
+  CAST_READY_TIMEOUT:'The TV connected but did not finish preparing this source in time. The original output is retained.',
+  MAC_RENDERER_TIMEOUT:'The Mac took too long to prepare the destination. Keep Flyx open and retry.',
+  MAC_OPERATION_FAILED:'The Mac could not prepare the current playback source. Reopen its controls and retry.',
+
   TRANSFER_CANCELLED:'Playback switching was cancelled. The original session is retained.',
   TRANSFER_EXPIRED:'This playback switch expired. Choose the destination again.',
   TRANSFER_BUSY:'Another playback switch is still in progress. Retry shortly.',

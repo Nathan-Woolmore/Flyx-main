@@ -1,6 +1,6 @@
 const fail=code=>Object.assign(new Error(code),{code});
 const selectionFrom=source=>{if(source.selection)return source.selection;try{const[kind,id,season,episode]=JSON.parse(source.identity);return{kind,contentID:Number(id),season:Number(season),episode:Number(episode)};}catch{throw fail('TRANSFER_UNSUPPORTED');}};
-export function createRendererTransfers({player,cast,currentSource,navigate,waitForPlayer,resolveCastMedia,delay=ms=>new Promise(r=>setTimeout(r,ms)),now=Date.now}){
+export function createRendererTransfers({player,cast,currentSource,navigate,waitForPlayer,resolveCastMedia,delay=ms=>new Promise(r=>setTimeout(r,ms)),now=Date.now,prepareTimeoutMS=10000}){
  const stages=new Map(),stops=new Map();let activeTV;
  const macIdentity=()=>{try{return player.identity();}catch{return'';}};
  const stamp=()=>player.stamp?.()??macIdentity();
@@ -31,8 +31,18 @@ export function createRendererTransfers({player,cast,currentSource,navigate,wait
     const selection=selectionFrom(spec.origin);const query=new URLSearchParams({[selection.kind==='anime'?'malId':'tmdbId']:String(selection.contentID),mediaType:selection.kind==='movie'?'movie':'tv',season:String(selection.season??1),episode:String(selection.episode??1),remotePrepare:'1',remoteTransfer:spec.id});
     await navigate('/watch?'+query);await waitForPlayer({...selection,transferID:spec.id});if(macIdentity()!==spec.origin.identity||player.transferID?.()!==spec.id)throw fail('TRANSFER_DESTINATION_CHANGED');player.markTransfer?.(spec.id);player.pause();stage.nativeStamp=stamp();
    }else{
-    if(!cast)throw fail('TRANSFER_UNSUPPORTED');const state=await cast.getState();if(state.isCasting)throw fail('TRANSFER_DESTINATION_BUSY');const media=await resolveCastMedia(spec.origin);const connected=await cast.connect({id:spec.receiverID});if(!connected.ok)throw fail('TRANSFER_DESTINATION_UNCONFIRMED');stage.connectionID=(await cast.getState()).connectionID;
-    const loaded=await cast.load({...media,startTime:spec.origin.position,autoplay:false});if(!loaded.ok)throw fail('TRANSFER_DESTINATION_UNCONFIRMED');stage.mediaSessionID=loaded.mediaSessionID??(await cast.getState()).mediaSessionID;await ensure(stage);const final=await cast.getState();if(final.playerState!=='PAUSED')throw fail('TRANSFER_DESTINATION_UNCONFIRMED');
+    if(!cast)throw fail('TRANSFER_UNSUPPORTED');const state=await cast.getState();if(state.isCasting)throw fail('TRANSFER_DESTINATION_BUSY');const media=await resolveCastMedia(spec.origin);const connected=await cast.connect({id:spec.receiverID});if(!connected.ok)throw fail(connected.errorCode??'CAST_CONNECT_FAILED');stage.connectionID=(await cast.getState()).connectionID;
+    const loaded=await cast.load({...media,startTime:spec.origin.position,autoplay:false});if(!loaded.ok)throw fail(loaded.errorCode??'CAST_LOAD_FAILED');stage.mediaSessionID=loaded.mediaSessionID??(await cast.getState()).mediaSessionID;
+    // LOAD acknowledgement may precede BUFFERING -> PAUSED. Keep the origin
+    // untouched until the exact receiver/media session confirms paused readiness.
+    const deadline=now()+prepareTimeoutMS;let ready=false;
+    while(now()<deadline){await ensure(stage);const state=await cast.getState();
+     if(state.mediaSessionID!=null&&state.playerState==='PAUSED'){ready=true;break;}
+     if(state.playerState==='PLAYING'){const ack=await cast.control({type:'pause'});if(!ack.ok)throw fail('CAST_REQUEST_REJECTED');}
+     if(state.lastError||state.playerState==='IDLE'&&['ERROR','CANCELLED','INTERRUPTED'].includes(state.idleReason))throw fail('CAST_LOAD_FAILED');
+     await delay(50);
+    }
+    if(!ready)throw fail('CAST_READY_TIMEOUT');
    }
    return{ticket:spec.id};
   }

@@ -6,6 +6,7 @@ import Observation
 @MainActor @Observable final class PlaybackSession {
     let phone=PhonePlaybackModel()
     let transfer=DestinationTransferModel()
+    var selectedTab="browse"
     var phoneActive=false
     var status:PlaybackStatus?
     var busy=false
@@ -30,6 +31,7 @@ import Observation
         let artwork=phoneActive ? phoneArtwork:status?.artworkURL
         let ack=try await transfer.transfer(client,origin:origin,destination:destination,receiverID:receiverID,phone:phone,title:title)
         phoneActive=ack.output=="phone";epoch+=1
+        if ack.output=="tv"{selectedTab="remote"}
         if phoneActive{phoneArtwork=artwork}else{status=PlaybackStatus(state:ack.paused ? "paused":"playing",position:ack.position,duration:duration?.isFinite==true ? duration!:0,title:title,artworkURL:artwork,output:ack.output,outputName:ack.output=="tv" ? "TV":"Mac")}
     }
     @ObservationIgnored var workTask:Task<Void,Never>?
