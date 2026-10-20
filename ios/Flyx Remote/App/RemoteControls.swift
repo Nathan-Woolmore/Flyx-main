@@ -16,7 +16,7 @@ struct RemoteDownload: Decodable,Equatable,Identifiable {
  var stateLabel:String{switch status{case "done":return playable ? "Downloaded":"File unavailable";case "queued":return "Queued";case "downloading":return "Downloading · \(Int(progress))%";case "processing":return "Finishing…";case "error":return "Download failed";case "cancelled":return "Cancelled";default:return status.capitalized}}
 }
 struct RemoteDownloadList: Decodable {let jobs:[RemoteDownload]}
-struct RemoteOK:Decodable {let ok:Bool}
+struct RemoteOK:Decodable,Sendable {let ok:Bool}
 struct DownloadOperation:Encodable {let operation:String;let id:String;var revision:String?=nil}
 struct VideoDownload:Encodable {let kind="video";let tmdbId:Int;let mediaType:String;let malId:Int?;let season:Int?;let episode:Int?;let title:String;var quality:String?=nil}
 struct QueueDownload:Encodable {let operation="queue";let item:VideoDownload}
@@ -32,14 +32,33 @@ extension RemoteClient {
 struct RemoteHomeView:View {
  let client:RemoteClient
  @State private var watchlist=RemoteWatchlist()
- @State private var playback=PlaybackSession()
- var body:some View {TabView(selection:$playback.selectedTab) {
+ @Environment(\.scenePhase) private var scenePhase
+ @State private var localPlayback=PlaybackSession()
+ @Environment(\.playbackSession) private var sharedPlayback
+ @Environment(\.applicationMode) private var applicationMode
+ private var playback:PlaybackSession{sharedPlayback ?? localPlayback}
+ private var downloadsClient:RemoteClient?{
+  if client.scopes.contains("downloads.read"){return client}
+  if let saved=applicationMode?.offlineMacClient,saved.scopes.contains("downloads.read"){return saved}
+  return nil
+ }
+ private var initialCatalogueKind:String {
+  #if DEBUG
+  if client.isStandalone,ProcessInfo.processInfo.arguments.contains("--standalone-manga54"){return "manga"}
+  if client.isStandalone,ProcessInfo.processInfo.arguments.contains("--standalone-anime54"){return "anime"}
+  #endif
+  return "movie"
+ }
+ var body:some View {TabView(selection:Binding(get:{playback.selectedTab},set:{playback.selectedTab=$0})) {
   Tab("Home",systemImage:"house",value:"home"){NativeHomeView(client:client,watchlist:watchlist)}
-  Tab("Browse",systemImage:"square.grid.2x2",value:"browse"){RemoteLibraryView(client:client,watchlist:watchlist)}
+  Tab("Browse",systemImage:"square.grid.2x2",value:"browse"){RemoteLibraryView(client:client,watchlist:watchlist,initialKind:initialCatalogueKind)}
   Tab("Watchlist",systemImage:"bookmark",value:"watchlist"){RemoteWatchlistView(client:client,model:watchlist)}
-  Tab("Remote",systemImage:"play.rectangle",value:"remote"){RemoteControlView(client:client)}
-  if client.scopes.contains("downloads.read") {Tab("Downloads",systemImage:"arrow.down.circle",value:"downloads"){RemoteDownloadsView(client:client)}}
- }.environment(\.playbackSession,playback).task{await watchlist.refresh(client)}}
+  Tab("Watch",systemImage:"play.rectangle",value:"remote"){RemoteControlView(client:playback.controlClient ?? client)}
+  if let downloadsClient {Tab("Downloads",systemImage:"arrow.down.circle",value:"downloads"){RemoteDownloadsView(client:downloadsClient)}}
+ }.environment(\.playbackSession,playback).task(id:client.baseURL){applicationMode?.activeClient=client}
+ .task(id:"\(scenePhase):\(client.baseURL)"){guard scenePhase == .active else{return};await playback.applicationDidBecomeActive(playback.controlClient ?? client);while !Task.isCancelled{await watchlist.refresh(client);do{try await Task.sleep(for:.seconds(20))}catch{return}}}
+ .onChange(of:scenePhase){_,phase in if phase == .background{playback.applicationDidBackground(playback.controlClient ?? client)};if phase != .active{Task{await WatchlistSynchronizer.shared.cancel()}}}}
+
 }
 struct RemoteDownloadsView:View {
  let client:RemoteClient
@@ -75,7 +94,7 @@ struct RemoteDownloadsView:View {
   }.padding(16).background(FlyxTheme.card,in:.rect(cornerRadius:20))}
   if let error{Text(error).font(.footnote).foregroundStyle(.orange);Button("Retry"){Task{await refresh()}}}
   if jobs.isEmpty{if loaded{ContentUnavailableView("No downloads",systemImage:"arrow.down.circle",description:Text("Download a title from Browse to keep a copy on your Mac."))}else{ForEach(0..<3,id:\.self){_ in HStack(spacing:16){RoundedRectangle(cornerRadius:12).fill(.quaternary).frame(width:92,height:138);VStack(alignment:.leading,spacing:12){RoundedRectangle(cornerRadius:4).fill(.quaternary).frame(height:18);RoundedRectangle(cornerRadius:4).fill(.quaternary).frame(width:100,height:12);RoundedRectangle(cornerRadius:4).fill(.quaternary).frame(width:130,height:12)};Spacer()}.padding(16).background(FlyxTheme.card,in:.rect(cornerRadius:20))}.loadingShimmer().accessibilityLabel("Loading downloads")}}
- }.padding(16)}.background(.black).navigationTitle("Downloads").refreshable{await refresh()}
+ }.padding(16)}.background(.black).navigationTitle("Downloads").toolbar{ToolbarItem(placement:.topBarTrailing){AppSettingsButton()}}.refreshable{await refresh()}
  .task{while !Task.isCancelled{await refresh();do{try await Task.sleep(for:.seconds(5))}catch{return}}}
  .confirmationDialog("Delete this download?",isPresented:Binding(get:{pendingTrash != nil},set:{if !$0{pendingTrash=nil}}),titleVisibility:.visible){
   if let job=pendingTrash{Button("Move to Mac Trash",role:.destructive){mutate("trash",job:job);pendingTrash=nil}}
@@ -86,17 +105,17 @@ struct RemoteDownloadsView:View {
   Button("Keep download",role:.cancel){pendingCancellation=nil}
  }message:{if let job=pendingCancellation{Text(job.removalClearsCache==true ? "Stops the download and keeps downloaded chapter pages for retry. Completed files are kept.":"Stops this download. Incomplete video data may be discarded; completed files are kept.")}}
  .sheet(item:$castJob){job in CastReceiverPicker(client:client){receiver in castJob=nil;play(job,to:"tv",receiverID:receiver.id)}}
- .fullScreenCover(item:$presentation){value in RemoteControlView(client:client,initialSelection:value.selection,initialItem:playingItem,startsOnPhone:value.phone,showClose:true).environment(\.playbackSession,session)}
+ .fullScreenCover(item:$presentation){value in RemoteControlView(client:client,initialSelection:value.selection,initialItem:playingItem,startsOnPhone:value.phone,initialPresentationID:value.id,showClose:true).environment(\.playbackSession,session)}
  }}
  private func refresh()async{refreshGeneration+=1;let generation=refreshGeneration;do{let result:RemoteDownloadList=try await client.request("/remote/v1/downloads");try Task.checkCancellation();guard generation==refreshGeneration else{return};if jobs != result.jobs{jobs=result.jobs};loaded=true;error=nil}catch{if !Task.isCancelled,generation==refreshGeneration{loaded=true;self.error=error.localizedDescription}}}
  private func mutate(_ operation:String,job:RemoteDownload){guard !busy else{return};busy=true;Task{defer{busy=false};do{let _:RemoteOK=try await client.request("/remote/v1/downloads",body:JSONEncoder().encode(DownloadOperation(operation:operation,id:job.id,revision:operation=="trash" ? job.fileRevision:nil)));await refresh()}catch{await refresh();self.error=error.localizedDescription}}}
  private func retryVideo(_ job:RemoteDownload){guard !busy,let selection=job.selection else{return};busy=true;Task{defer{busy=false};do{let _:RemoteOK=try await client.download(job.displayTitle,season:selection.season,episode:selection.episode,quality:job.quality);await refresh()}catch{self.error=error.localizedDescription}}}
- private func play(_ job:RemoteDownload,to destination:String,receiverID:String?=nil){guard !busy,let selection=job.selection else{return};busy=true;error=nil;Task{defer{busy=false};do{
+ private func play(_ job:RemoteDownload,to destination:String,receiverID:String?=nil){guard !busy,!session.busy,let selection=job.selection else{return};busy=true;error=nil;Task{defer{busy=false};do{
   let current:RemoteDownloadList=try await client.request("/remote/v1/downloads");jobs=current.jobs
   guard let fresh=current.jobs.first(where:{$0.id==job.id}),fresh.playable,fresh.selection?.id==selection.id else{throw RemoteFailure(message:"This download is no longer ready. Refresh or relink the saved file on your Mac.")}
   playingItem=fresh.displayTitle
   if destination != "phone"{let result=try await client.play(fresh.displayTitle,season:selection.season,episode:selection.episode);guard result.ok,result.status.state=="playing"else{throw RemoteFailure(message:"The Mac did not confirm playback.")};session.status=result.status;session.phoneActive=false;if destination=="tv"{try await session.switchOutput(client,to:"tv",receiverID:receiverID);if sharedSession != nil{return}}}
-  presentation=PlayerPresentation(selection:selection,phone:destination=="phone")
+  let value=PlayerPresentation(selection:selection,phone:destination=="phone");if value.phone{session.startPhone(client,presentationID:value.id,selection:selection,position:nil,item:fresh.displayTitle)};presentation=value
  }catch{self.error=error.localizedDescription}}}
 }
 

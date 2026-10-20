@@ -24,6 +24,7 @@ type Filter = "all" | WatchlistMediaType;
 type Sort = "recent" | "title" | "rating";
 
 function itemHref(item: WatchlistItem) {
+  if (item.mediaType === "manga" && /^md:[a-f0-9-]{36}$/i.test(item.contentId)) return `https://mangadex.org/title/${item.contentId.slice(3)}`;
   if (item.mediaType === "anime") return `/anime/${item.contentId}`;
   if (item.mediaType === "manga") return `/manga/${item.contentId}`;
   return `/details/${item.contentId}?type=${item.mediaType}`;

@@ -87,3 +87,5 @@ connection-verification.json
 phone-playback-fixture.json
 **/Local.xcconfig
 /ios/**/Verification/
+/ios/Flyx Remote/Config/LocalSigning.xcconfig
+!/scripts/build-ios.py

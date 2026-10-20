@@ -21,6 +21,8 @@ export const playbackMessages={
 
   PHONE_SOURCES_EXHAUSTED:'No remaining compatible source could play. Choose another source or return to the Mac.',
   PHONE_FORMAT_UNSUPPORTED:'Use compatible MP4 or clear on-demand HLS. Encrypted/DRM streams, live HLS and other containers are unsupported.',
+  PHONE_AUTH_TIMEOUT:'The Mac session check stalled before media preparation. Keep Flyx open and retry.',
+  PHONE_SOURCE_TIMEOUT:'Streaming sources took too long to prepare. Retry this title.',
   PHONE_MEDIA_UNAVAILABLE:'The Mac could not prepare this source for the iPhone. Keep it open and retry.',
   PHONE_MEDIA_EXPIRED:'Phone playback access expired. Prepare the title again from the Mac.',
   PHONE_TITLE_CHANGED:'The title or episode changed on the Mac. Return to the Remote and prepare it again.',

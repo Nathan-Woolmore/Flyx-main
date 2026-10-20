@@ -17,7 +17,7 @@ final class UIOnlyProtocol: URLProtocol, @unchecked Sendable {
   if (ProcessInfo.processInfo.arguments.contains("skeleton-transition") || ((ProcessInfo.processInfo.arguments.contains("touch-delayed") || ProcessInfo.processInfo.arguments.contains("touch-baseline")) && request.url?.path=="/remote/v1/catalog")),delayLock.withLock({if delayed{return false};delayed=true;return true}) {
    DispatchQueue.global().asyncAfter(deadline:.now()+1.2){[weak self] in guard let self,!self.delayLock.withLock({self.stopped})else{return};self.startLoading()};return
   }
-  if ProcessInfo.processInfo.arguments.contains("skeleton") { return } // DEBUG-only pending request for stable placeholder QA.
+  if ProcessInfo.processInfo.arguments.contains("skeleton"),!ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("home-layout64")}) || request.url?.path == "/remote/v1/home" { return } // DEBUG-only pending request for stable placeholder QA.
   let url=request.url!,kind=URLComponents(url:url,resolvingAgainstBaseURL:false)?.queryItems?.first(where:{$0.name=="kind"})?.value ?? "movie"
   let qaMode=ProcessInfo.processInfo.arguments.last ?? ""
   if qaMode.hasSuffix("41"),url.path=="/remote/v1/info"{reply(["features":["phone.direct.mp4","phone.direct.hls","player.transfer.confirm.v2","downloads.library.v1","player.sources.v1"]]);return}
@@ -77,7 +77,7 @@ final class UIOnlyProtocol: URLProtocol, @unchecked Sendable {
    let generation=Self.state.lock.withLock{Self.state.chapterGeneration+=1;return Self.state.chapterGeneration}
    let handle=ProcessInfo.processInfo.arguments.contains("reader-expired") && generation==1 ? "synthetic-expired":"synthetic-reader-"+String(generation)
    body=["handle":handle,"pageCount":3,"provider":"weebcentral","mangaID":"synthetic-reader","chapterID":chapterID,"chapterNumber":chapterID.hasPrefix("0") ? 1:2.5,"language":"en","edition":"official"]
-  case "/remote/v1/info":body=["features":["phone.direct.mp4","phone.direct.hls"]+(ProcessInfo.processInfo.arguments.contains("details-reviews50") ? ["catalog.reviews.v1"]:[])+(ProcessInfo.processInfo.arguments.contains(where:{$0=="home-footer46" || $0=="home-edge48"}) ? ["catalog.home.v1"]:[])+(ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("details-progress")}) ? ["player.progress.v1"]:[])]
+  case "/remote/v1/info":body=["features":["phone.direct.mp4","phone.direct.hls"]+(ProcessInfo.processInfo.arguments.contains("details-reviews50") ? ["catalog.reviews.v1"]:[])+(ProcessInfo.processInfo.arguments.contains(where:{$0=="home-footer46" || $0=="home-edge48" || $0.hasPrefix("home-layout64")}) ? ["catalog.home.v1"]:[])+(ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("details-progress")}) ? ["player.progress.v1"]:[])]
   case "/remote/v1/session":body=["deviceID":"fixture-phone","scopes":["catalog.read","playback.control","watchlist.write"],"expiresAt":9999999999999]
   case "/remote/v1/reviews":body=["items":[["id":"fixture-review-one","author":"Synthetic audience member","text":String(repeating:"A synthetic review paragraph used to inspect readable plain text and expansion. ",count:8),"rating":8.5,"createdAt":"2026-10-18T01:00:00.000Z","url":"https://www.themoviedb.org/review/fixture-review-one"],["id":"fixture-review-two","author":"Another synthetic reader","text":"A short audience review. No professional critic score or helpfulness rank is implied.","rating":NSNull(),"createdAt":NSNull(),"url":"https://www.themoviedb.org/review/fixture-review-two"]],"order":"tmdb","page":1,"nextPage":NSNull(),"total":2]
   case "/remote/v1/watchlist" where request.httpMethod == "POST":body=["ok":true]
@@ -101,13 +101,25 @@ final class UIOnlyProtocol: URLProtocol, @unchecked Sendable {
 }
 struct UIOnlyRoot:View {
  let mode:String
+ @State private var modeModel=ApplicationModeModel()
  private var client:RemoteClient{let config=URLSessionConfiguration.ephemeral;config.protocolClasses=[UIOnlyProtocol.self];return RemoteClient(baseURL:URL(string:"https://synthetic.local")!,token:"SYNTHETIC-UI-ONLY",scopes:["catalog.read","playback.control","downloads.read","downloads.write"],session:URLSession(configuration:config))}
  var body:some View {
   Group {
-   if mode.hasPrefix("reader"){NavigationStack{MangaReader(client:client,item:RemoteTitle(id:"synthetic-reader",kind:"manga",title:"Synthetic Reader",overview:"Fixture pages only",posterURL:nil),chapters:[RemoteDetails.Chapter(id:String(repeating:"0",count:26),number:1,title:"Fixture chapter",language:"en",edition:"official"),RemoteDetails.Chapter(id:String(repeating:"1",count:26),number:2.5,title:"Fixture bonus",language:"en",edition:"official")])}}
+   if mode.hasPrefix("home-layout64"){RemoteHomeView(client:client).environment(\.applicationMode,modeModel).environment(\.playbackSession,modeModel.playback).onAppear{modeModel.mode = .remote}.sheet(isPresented:$modeModel.settings){ApplicationModeSettings(model:modeModel)}}
+   else if mode.hasPrefix("reader"){NavigationStack{MangaReader(client:client,item:RemoteTitle(id:"synthetic-reader",kind:"manga",title:"Synthetic Reader",overview:"Fixture pages only",posterURL:nil),chapters:[RemoteDetails.Chapter(id:String(repeating:"0",count:26),number:1,title:"Fixture chapter",language:"en",edition:"official"),RemoteDetails.Chapter(id:String(repeating:"1",count:26),number:2.5,title:"Fixture bonus",language:"en",edition:"official")])}}
    else if mode=="touch-baseline"{BaselineCatalogueFixture(client:client)}
+   else if mode.hasPrefix("anime-routing75"){AnimeRoutingChecks75(live:mode.hasSuffix("-live"))}
+   else if mode=="automatic-routing75"{StandaloneModeChecksView()}
+   else if mode=="remote-phone77"{RemotePhoneChecks77()}
+   else if mode.hasPrefix("source-parity76"){SourceParityChecks76(live:mode.hasSuffix("-live"))}
+   else if mode.hasPrefix("source-fallback73"){SourceFallbackChecks73(live:mode.hasSuffix("-live"))}
+   else if mode=="playback-identity72"{PlaybackIdentityChecks72()}
+   else if mode.hasPrefix("captions-"){CaptionsControlsChecks71(mode:mode)}
+   else if mode=="fullscreen-lifecycle70"{FullscreenLifecycleChecks70()}
+   else if mode.hasPrefix("destination-"){PlaybackDestinationChecks69(mode:mode)}
    else if mode=="switching-e2e40"{NativeSwitchingFixture(client:client)}
    else if mode.hasPrefix("native-progress-"){NativeProgressFixture(client:client,mode:mode)}
+   else if mode=="connection-mode56"{ConnectionView().environment(\.applicationMode,modeModel)}
    else if mode=="connection"{ConnectionView()}
    else if mode.hasPrefix("cast-"){CastReceiverPicker(client:client){_ in}}
    else if mode.hasPrefix("details"){NavigationStack{RemoteDetailView(client:client,item:RemoteTitle(id:"1",kind:mode.hasSuffix("-tv") ? "tv":"movie",title:"The Last Horizon",overview:"A synthetic story used to inspect the interface.",posterURL:nil))}}
@@ -119,7 +131,7 @@ struct UIOnlyRoot:View {
    else if mode.hasPrefix("skeleton51"){SkeletonGeometryFixture(mode:mode)}
    else if mode=="rating45"{RatingClippingFixture()}
    else{RemoteHomeView(client:client)}
-  }.onAppear{TouchVerification.install()}.dynamicTypeSize(mode=="header-large" ? .accessibility1:.large).safeAreaInset(edge:.top){if !mode.hasPrefix("header") && mode != "pagination"{Text("PREVIEW · SYNTHETIC FIXTURES").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).frame(maxWidth:.infinity).padding(4)}}
+  }.onAppear{TouchVerification.install()}.dynamicTypeSize(mode=="header-large" ? .accessibility1:.large).safeAreaInset(edge:.top){if !mode.hasPrefix("header") && !mode.hasPrefix("home-layout64") && mode != "pagination" && mode != "connection-mode56"{Text("PREVIEW · SYNTHETIC FIXTURES").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).frame(maxWidth:.infinity).padding(4)}}
  }
 }
 @MainActor private struct NativeTransferFixture:View {

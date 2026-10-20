@@ -33,7 +33,7 @@ struct SeriesProgress:Decodable,Sendable {let kind:String;let contentID:Int;let 
                 sequence+=1
                 let _:RemoteOK=try await client.request("/remote/v1/progress",body:JSONEncoder().encode(ProgressOperation(operation:"update",sessionID:lease,sequence:sequence,position:sample.position,duration:sample.duration,ended:sample.ended)))
                 warning=nil
-            }catch{warning="Progress could not be saved to the Mac. Keep Flyx connected before leaving this episode."}
+            }catch{warning=client.isStandalone ? "Progress could not be saved on this iPhone.":"Progress could not be saved to the Mac. Keep Flyx connected before leaving this episode."}
         }
     }
 }

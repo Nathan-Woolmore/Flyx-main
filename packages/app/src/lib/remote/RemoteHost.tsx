@@ -12,6 +12,7 @@ import { getDesktopCastBridge } from '@/lib/desktop-cast';
 import {waitForRemotePlayer} from './wait-for-player.mjs';
 import { createRendererAdapter } from './renderer.mjs';
 export interface RemoteAPI {
+ trace?(event:Record<string,unknown>):Promise<unknown>;
  updatePermissions(id:string,watchlist:boolean,downloads:boolean):Promise<unknown>;
  onRequest(callback:(request:any)=>void):()=>void;
  reply(reply:any):Promise<void>;
@@ -30,8 +31,8 @@ export default function RemoteHost() {
   let uiEpoch=0;const activity=()=>{uiEpoch+=1;};window.addEventListener('pointerdown',activity,true);window.addEventListener('keydown',activity,true);const stamps=new WeakMap<HTMLVideoElement,{src:string;id:string}>();
   const watchlist=createWatchlistStore({storage:window.localStorage,key:()=>accountKey('flyx_watchlist_v1'),changed:()=>window.dispatchEvent(new Event(ACCOUNT_SCOPE_EVENT))});
   const progress=createProgressBridge({read:getAllWatchProgress,write:updateWatchProgress,begin:beginProgressSession,scope:()=>accountKey(WATCH_PROGRESS_KEY),finished:isProgressFinished});
-  const adapter=createRendererAdapter({progress:async(spec:any)=>{await resolveAccountScope();return progress(spec);},resolvePhoneTitle:async(selection:any)=>{
-    return resolvePhoneSources(selection, {fetcher:fetch, order:(sources:any[])=>orderedStartupSources(sources,getPlayerPreferences().preferredQuality), recovery:(sources:any[])=>[...sources].sort((a,b)=>fastStartRank(b)-fastStartRank(a))});
+  const adapter=createRendererAdapter({progress:async(spec:any)=>{await resolveAccountScope();return progress(spec);},resolvePhoneTitle:async(selection:any,context:any)=>{
+    return resolvePhoneSources(selection, {requestID:context?.requestID,onTrace:(event:any)=>{void api.trace?.(event).catch(()=>{});},fetcher:fetch, order:(sources:any[])=>orderedStartupSources(sources,getPlayerPreferences().preferredQuality), recovery:(sources:any[])=>[...sources].sort((a,b)=>fastStartRank(b)-fastStartRank(a))});
   },resolveCastMedia:async(source:any)=>{const q=new URLSearchParams({format:'json',target:'cast',url:source.url,title:source.title??'Flyx'});const response=await fetch('/api/stream/vlc?'+q,{credentials:'same-origin',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)});const value=await response.json();if(!response.ok||!value.ok)throw Object.assign(new Error('Cast source unavailable'),{code:'TRANSFER_UNSUPPORTED'});return{url:value.url,title:source.title,contentType:source.contentType};},manga:async(spec:any)=>{
     const path=spec.operation==='chapter'?'/api/manga/chapter-pages?'+new URLSearchParams({mangaID:spec.mangaID,chapterID:spec.chapterID}):'/api/manga/image?'+new URLSearchParams({url:spec.url,...(spec.referer?{referer:spec.referer}:{})});
     const response=await fetch(path,{credentials:'same-origin',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)});if(!response.ok)throw Object.assign(new Error('Reader unavailable'),{code:'MANGA_UNAVAILABLE'});

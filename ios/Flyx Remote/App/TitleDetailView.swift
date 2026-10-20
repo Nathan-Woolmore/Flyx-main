@@ -2,12 +2,16 @@ import SwiftUI
 import WebKit
 
 struct RemoteDetailView:View {
-    let client:RemoteClient
+    private let suppliedClient:RemoteClient
+    @Environment(\.applicationMode) private var applicationMode
+    private var client:RemoteClient{applicationMode?.activeClient ?? suppliedClient}
+    init(client:RemoteClient,item:RemoteTitle,watchlist:RemoteWatchlist?=nil){suppliedClient=client;self.item=item;self.watchlist=watchlist}
     let item:RemoteTitle
     var watchlist:RemoteWatchlist?=nil
     @State private var details:RemoteDetails?
     @State private var directPhone=false
     @State private var destination="mac"
+    @State private var initialStandaloneDestination=false
     @Environment(\.playbackSession) private var sharedSession
     @State private var localSession=PlaybackSession()
     @State private var castPresented=false
@@ -49,8 +53,8 @@ struct RemoteDetailView:View {
             RemotePoster(item:item).frame(height:280).clipShape(.rect(cornerRadius:20))
             VStack(alignment:.leading,spacing:10){Text(item.title).font(.largeTitle.bold()).fixedSize(horizontal:false,vertical:true);TitleFacts(item:item,details:details)}
             if item.kind != "manga",details != nil || loadingDetails{playbackArea.redacted(reason:loadingDetails ? .placeholder:[]).loadingShimmer(loadingDetails).allowsHitTesting(!loadingDetails).accessibilityHidden(loadingDetails)}
-            else if let details,item.kind=="manga"{MangaChapterSection(client:client,item:item,chapters:details.chapters ?? [])}
-            if let watchlist{HStack(spacing:10){WatchlistSaveButton(item:item,model:watchlist,client:client);Text(watchlist.contains(item) ? "Saved on Mac":"Save to Mac watchlist").font(.subheadline)};if !watchlist.canWrite{Text("Allow watchlist saving in Flyx on Mac.").font(.caption).foregroundStyle(.secondary)}}
+            else if let details,item.kind=="manga"{MangaChapterSection(client:client,item:item,chapters:details.chapters ?? [],emptyReason:details.chapterUnavailable)}
+            if let watchlist{HStack(spacing:10){WatchlistSaveButton(item:item,model:watchlist,client:client);Text(watchlist.contains(item) ? "Saved to watchlist":"Save to watchlist").font(.subheadline)};if !watchlist.canWrite{Text("Allow watchlist saving in Flyx on Mac.").font(.caption).foregroundStyle(.secondary)}}
             let overview=details?.overview ?? item.overview
             if !overview.isEmpty{VStack(alignment:.leading,spacing:10){Text("Overview").font(.headline);Text(overview).font(.body).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)}}
             if item.kind=="movie",let trailer=details?.trailer{MovieTrailerSection(trailer:trailer)}
@@ -63,19 +67,20 @@ struct RemoteDetailView:View {
             #if DEBUG
             .defaultScrollAnchor(ProcessInfo.processInfo.arguments.contains("details-reviews50") ? .bottom:.top)
             #endif
-            .fullScreenCover(item:$playerPresentation){value in RemoteControlView(client:client,initialSelection:value.selection,initialItem:item,startsOnPhone:value.phone,initialPosition:value.position,showClose:true).environment(\.playbackSession,session)}
-            .task(id:"\(selectedSeason.map(String.init) ?? "default"):\(retry)"){await loadDetails()}
-            .task(id:downloadKey){while !Task.isCancelled{await refreshDownloadState();do{try await Task.sleep(for:.seconds(5))}catch{return}}}
+            .fullScreenCover(item:$playerPresentation){value in RemoteControlView(client:session.controlClient ?? client,initialSelection:value.selection,initialItem:item,startsOnPhone:value.phone,initialPosition:value.position,initialPresentationID:value.id,showClose:true).environment(\.playbackSession,session)}
+            .task(id:"\(client.baseURL):\(selectedSeason.map(String.init) ?? "default"):\(retry)"){if client.isStandalone{destination="phone";selectedReceiver=nil;initialStandaloneDestination=true};await loadDetails()}
+            .task(id:"\(client.baseURL):\(downloadKey)"){while !Task.isCancelled{await refreshDownloadState();do{try await Task.sleep(for:.seconds(5))}catch{return}}}
             .sheet(isPresented:$castPresented){CastReceiverPicker(client:client){receiver in selectedReceiver=receiver;destination="tv"}}
 
     }
     private var playbackArea:some View {VStack(alignment:.leading,spacing:16){
         HStack{Text("PLAYBACK").font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary);Spacer();
-            Menu{Button{destination="mac"}label:{Label("Mac",systemImage:"desktopcomputer")};if directPhone{Button{destination="phone"}label:{Label("This iPhone",systemImage:"iphone")}};Button{castPresented=true}label:{Label("Cast to TV",systemImage:"tv")}}label:{HStack(spacing:7){Image(systemName:destination=="phone" ? "iphone":destination=="tv" ? "tv":"desktopcomputer");Text(destinationLabel).lineLimit(1);Image(systemName:"chevron.down").font(.caption2.weight(.bold))}.font(.subheadline.weight(.semibold)).frame(minHeight:44).padding(.horizontal,12).background(.white.opacity(0.06),in:.capsule)}.accessibilityLabel("Playback destination").accessibilityIdentifier("detail.destination").disabled(busy)
+            Menu{if !client.isStandalone{Button{destination="mac"}label:{Label("Mac",systemImage:"desktopcomputer")}};if directPhone{Button{destination="phone"}label:{Label("This iPhone",systemImage:"iphone")}};if !client.isStandalone{Button{castPresented=true}label:{Label("Cast to TV",systemImage:"tv")}}}label:{HStack(spacing:7){Image(systemName:destination=="phone" ? "iphone":destination=="tv" ? "tv":"desktopcomputer");Text(destinationLabel).lineLimit(1);Image(systemName:"chevron.down").font(.caption2.weight(.bold))}.font(.subheadline.weight(.semibold)).frame(minHeight:44).padding(.horizontal,12).background(.white.opacity(0.06),in:.capsule)}.accessibilityLabel("Playback destination").accessibilityIdentifier("detail.destination").disabled(busy)
         }
         if item.kind != "movie"{episodeSelection}
         if let episodeLabel{Text(episodeLabel).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)}
-        Button{play()}label:{HStack(spacing:12){if busy{ProgressView().tint(FlyxTheme.ink)}else{Image(systemName:"play.fill").font(.system(size:21,weight:.semibold))};Text(busy ? "Preparing…":playLabel).font(.headline);Spacer()}.foregroundStyle(FlyxTheme.ink).padding(.horizontal,20).frame(maxWidth:.infinity,minHeight:58).background(FlyxTheme.accent,in:.rect(cornerRadius:16)).contentShape(.rect(cornerRadius:16))}.buttonStyle(.plain).disabled(busy || loadingDetails || (item.kind != "movie" && episode==nil)).accessibilityLabel("\(playLabel) \(episodeLabel ?? item.title) on \(destinationLabel)").accessibilityIdentifier("detail.play")
+        Button{play()}label:{HStack(spacing:12){if busy{ProgressView().tint(FlyxTheme.ink)}else{Image(systemName:"play.fill").font(.system(size:21,weight:.semibold))};Text(busy ? "Preparing…":playLabel).font(.headline);Spacer()}.foregroundStyle(FlyxTheme.ink).padding(.horizontal,20).frame(maxWidth:.infinity,minHeight:58).background(FlyxTheme.accent,in:.rect(cornerRadius:16)).contentShape(.rect(cornerRadius:16))}.buttonStyle(.plain).disabled(busy || loadingDetails || (client.isStandalone && details?.playbackUnavailable != nil) || (item.kind != "movie" && episode==nil)).accessibilityLabel("\(playLabel) \(episodeLabel ?? item.title) on \(destinationLabel)").accessibilityIdentifier("detail.play")
+        if client.isStandalone,let unavailable=details?.playbackUnavailable{Text(unavailable).font(.footnote).foregroundStyle(.secondary)}
         if progressSupported,savedProgress != nil{Button("Start over"){startOver=true;if item.kind != "movie"{selectedEpisode=episodes.first(where:{$0.number==savedProgress?.episode})?.number ?? episodes.first?.number}}.font(.subheadline).frame(minHeight:44).disabled(busy)}
         if let warning=details?.seasonError{Text(warning).font(.footnote).foregroundStyle(.orange);Button("Retry episodes"){retry+=1}}
         if item.kind != "movie",episodes.isEmpty,!loadingDetails{Text("No episodes are available from this provider yet.").font(.footnote).foregroundStyle(.secondary)}
@@ -112,10 +117,11 @@ struct RemoteDetailView:View {
     private func applySavedSelection(){guard !progressApplied,let entry=savedProgress,item.kind != "movie"else{return};if item.kind=="tv",activeSeason != entry.season,details?.seasons.contains(where:{$0.number==entry.season})==true{selectedSeason=entry.season;return};progressApplied=true
         if entry.completed{if let next=episodes.first(where:{$0.number>entry.episode}){selectedEpisode=next.number}else if item.kind=="tv",let next=details?.seasons.filter({$0.number>entry.season}).min(by:{$0.number<$1.number}){selectedSeason=next.number;selectedEpisode=nil}}else{selectedEpisode=entry.episode}
     }
-    private func play(){guard !busy,!loadingDetails,let id=Int(item.id)else{return};let season=item.kind=="movie" ? nil:(item.kind=="anime" ? 1:activeSeason),episode=item.kind=="movie" ? nil:episode
-        if destination=="phone"{playerPresentation = .init(selection:.init(kind:item.kind,contentID:id,season:season,episode:episode),phone:true,position:resumePosition);return}
-        busy=true;error=nil;Task{defer{busy=false};do{let result=try await client.play(item,season:season,episode:episode,seconds:progressSupported ? resumePosition:nil);guard result.ok,result.status.state=="playing"else{throw RemoteFailure(message:"Mac did not confirm playback.")};session.status=result.status;session.phoneActive=false;if destination=="tv"{guard let receiver=selectedReceiver else{throw RemoteFailure(message:"Choose a TV first.")};try await session.switchOutput(client,to:"tv",receiverID:receiver.id);if sharedSession != nil{return}};playerPresentation = .init(selection:.init(kind:item.kind,contentID:id,season:season,episode:episode),phone:false,position:resumePosition)}catch{self.error=error.localizedDescription}}
+    private func play(){guard !busy,!session.busy,!loadingDetails,let id=Int(item.id)else{return};let season=item.kind=="movie" ? nil:(item.kind=="anime" ? 1:activeSeason),episode=item.kind=="movie" ? nil:episode
+        if destination=="phone"{let value=PlayerPresentation(selection:.init(kind:item.kind,contentID:id,season:season,episode:episode),phone:true,position:resumePosition);session.startPhone(client,presentationID:value.id,selection:value.selection,position:value.position,item:item);playerPresentation=value;return}
+        busy=true;error=nil;session.run{defer{busy=false};do{let result=try await client.play(item,season:season,episode:episode,seconds:progressSupported ? resumePosition:nil);try Task.checkCancellation();guard result.ok,result.status.state=="playing"else{throw RemoteFailure(message:"Mac did not confirm playback.")};session.status=result.status;session.controlClient=client;session.phoneActive=false;if destination=="tv"{guard let receiver=selectedReceiver else{throw RemoteFailure(message:"Choose a TV first.")};try Task.checkCancellation();try await session.switchOutput(client,to:"tv",receiverID:receiver.id);if sharedSession != nil{return}};playerPresentation = .init(selection:.init(kind:item.kind,contentID:id,season:season,episode:episode),phone:false,position:resumePosition)}catch{if !Task.isCancelled{self.error=error.localizedDescription}}}
     }
+
     private func download(quality:String?){guard !busy,downloadStateSupported,!checkingDownload,!downloadCheckFailed,downloadState?.active != true,downloadState?.playable != true else{return};busy=true;error=nil;Task{defer{busy=false};do{let result=try await client.download(item,season:item.kind=="movie" ? nil:activeSeason,episode:episode,quality:quality);await refreshDownloadState();message=result.ok ? nil:"Download was not queued"}catch{self.error=error.localizedDescription}}}
 }
 private struct DetailEpisode:Identifiable{var id:Int{number};let number:Int;let title:String}
@@ -125,11 +131,11 @@ private struct TitleFacts:View {
 }
 struct TitleInformation:View {
     let rows:[RemoteDetails.Metadata]
-    var body:some View{VStack(alignment:.leading,spacing:14){Text("Title information").font(.title3.bold());VStack(spacing:0){ForEach(rows){entry in VStack(alignment:.leading,spacing:6){Text(entry.label).font(.caption).foregroundStyle(.secondary);Text(entry.value).font(.subheadline.weight(.medium)).fixedSize(horizontal:false,vertical:true).textSelection(.enabled)}.frame(maxWidth:.infinity,alignment:.leading).padding(.vertical,14).padding(.horizontal,18).overlay(alignment:.bottom){if entry.id != rows.last?.id{Divider().padding(.horizontal,18)}}}}.background(FlyxTheme.card,in:.rect(cornerRadius:20))}.accessibilityIdentifier("detail.title-information")}
+    var body:some View{VStack(alignment:.leading,spacing:14){Text("Title information").font(.title3.bold());VStack(spacing:0){ForEach(rows){entry in VStack(alignment:.leading,spacing:6){Text(entry.label).font(.caption).foregroundStyle(.secondary);Group{if let raw=entry.url,let url=URL(string:raw),url.scheme=="https"{Link(entry.value,destination:url)}else{Text(entry.value).textSelection(.enabled)}}.font(.subheadline.weight(.medium)).fixedSize(horizontal:false,vertical:true)}.frame(maxWidth:.infinity,alignment:.leading).padding(.vertical,14).padding(.horizontal,18).overlay(alignment:.bottom){if entry.id != rows.last?.id{Divider().padding(.horizontal,18)}}}}.background(FlyxTheme.card,in:.rect(cornerRadius:20))}.accessibilityIdentifier("detail.title-information")}
 }
 private struct MangaChapterSection:View {
-    let client:RemoteClient;let item:RemoteTitle;let chapters:[RemoteDetails.Chapter]
-    var body:some View{if !chapters.isEmpty{VStack(alignment:.leading,spacing:16){NavigationLink("Read / Continue",destination:MangaReader(client:client,item:item,chapters:chapters)).buttonStyle(.borderedProminent).foregroundStyle(FlyxTheme.ink);DisclosureGroup("Chapters (\(chapters.count))"){ForEach(chapters){chapter in NavigationLink("\(chapter.number.formatted()). \(chapter.title)",destination:MangaReader(client:client,item:item,chapters:chapters,startingChapter:chapter.id))}}}}else{Text("No chapters are available from this provider yet.").foregroundStyle(.secondary)}}
+    let client:RemoteClient;let item:RemoteTitle;let chapters:[RemoteDetails.Chapter];var emptyReason:String?=nil
+    var body:some View{if !chapters.isEmpty{VStack(alignment:.leading,spacing:16){NavigationLink("Read / Continue",destination:MangaReader(client:client,item:item,chapters:chapters)).buttonStyle(.borderedProminent).foregroundStyle(FlyxTheme.ink);DisclosureGroup("Chapters (\(chapters.count))"){ForEach(chapters){chapter in NavigationLink("\(chapter.number.formatted()). \(chapter.title)",destination:MangaReader(client:client,item:item,chapters:chapters,startingChapter:chapter.id))}}}}else{Text(emptyReason ?? "This provider currently lists no chapters for this title.").foregroundStyle(.secondary)}}
 }
 
 

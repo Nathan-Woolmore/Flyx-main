@@ -50,6 +50,11 @@ struct CatalogSnapshot {
     private var snapshots: [CatalogRequest:CatalogSnapshot] = [:]
     private var categories: [String:CatalogRequest] = [:]
     private var generation = UUID()
+    private var source:URL?
+    func useSource(_ endpoint:URL){
+        guard source != endpoint else{return};source=endpoint;generation=UUID();loading=false;loadingMore=false;error=nil
+        snapshots.removeAll();snapshot.loaded=false;snapshot.nextPage=nil;snapshot.fetchedPages.removeAll()
+    }
     var anchor: String? { get { snapshot.anchor } set { snapshot.anchor = newValue } }
     var showsSkeleton: Bool { !snapshot.loaded && error == nil }
     var isEmpty: Bool { snapshot.loaded && snapshot.items.isEmpty && snapshot.nextPage == nil }

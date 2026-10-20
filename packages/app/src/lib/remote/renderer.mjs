@@ -14,7 +14,7 @@ import {applyRemoteAudio} from './audio.mjs';
 export function createRendererAdapter({navigate,player,fetchJSON,waitForPlayer,cast,downloads,watchlist,manga,resolvePhoneTitle,resolveCastMedia,progress}) {
   const transfers=new Map(),cancelled=new Set();
   const destinationTransfers=createRendererTransfers({player,cast,currentSource:currentRemoteCastSource,navigate,waitForPlayer,resolveCastMedia});
-  return async ({action,payload}) => {
+  return async ({requestID,action,payload}) => {
     if(action==='progress'){if(!progress)throw new Error('Progress unavailable');return progress(payload);}
     if(action==='transfer')return destinationTransfers(payload);
     if(action==='sources'){
@@ -51,7 +51,7 @@ export function createRendererAdapter({navigate,player,fetchJSON,waitForPlayer,c
     };
     if(action === 'status') {const value=await snapshot();return{...value,phonePlayback:value.output!=='tv'&&['video/mp4','application/x-mpegURL'].includes(castSource?.contentType)};}
     if(action==='phoneMedia') {
-      if(payload.operation==='prepare-title'){if(!resolvePhoneTitle)throw Object.assign(new Error('Resolver unavailable'),{code:'PHONE_MEDIA_UNAVAILABLE'});const media=await resolvePhoneTitle(payload.selection);return{...media,identity:JSON.stringify([payload.selection.kind,String(payload.selection.contentID),String(payload.selection.season??1),String(payload.selection.episode??1)]),position:0,duration:0,paused:false};}
+      if(payload.operation==='prepare-title'){if(!resolvePhoneTitle)throw Object.assign(new Error('Resolver unavailable'),{code:'PHONE_MEDIA_UNAVAILABLE'});const media=await resolvePhoneTitle(payload.selection,{requestID});return{...media,identity:JSON.stringify([payload.selection.kind,String(payload.selection.contentID),String(payload.selection.season??1),String(payload.selection.episode??1)]),position:0,duration:0,paused:false};}
       const state=cast?await cast.getState():null;if(state?.isCasting&&payload.operation!=='cancel')throw Object.assign(new Error('TV output active'),{code:'PHONE_MEDIA_UNAVAILABLE'});
       if(payload.operation==='select-mac'){await navigate(watchTarget(payload.selection));await waitForPlayer(payload.selection);player.seek(payload.position);if(payload.paused)player.pause();else await player.play();return{ok:true,status:player.snapshot()};}
       if(payload.operation==='prepare'){const source=currentRemoteCastSource();if(!source.preparePhone||!['video/mp4','application/x-mpegURL'].includes(source.contentType))throw Object.assign(new Error('Unsupported format'),{code:'PHONE_FORMAT_UNSUPPORTED'});const media=await source.preparePhone();const status=player.snapshot();return{...media,identity:player.identity(),position:status.position,duration:status.duration,paused:status.state!=='playing'};}

@@ -1027,7 +1027,7 @@ function registerIpc() {
     let remoteConfig;
     try { remoteConfig=loadRemoteConfiguration({dataDir:DATA_DIR}); }
     catch { server.log("[remote] private configuration invalid or LAN address unavailable; remote remains off"); }
-    remoteBridgeCandidate = installRemoteBridge({mediaOrigin:`http://127.0.0.1:${currentPort}`,audioLocked:isSilentCastTest,handleTrusted,
+    remoteBridgeCandidate = installRemoteBridge({diagnostic:event=>server.log("[remote-prepare] "+JSON.stringify(event)),mediaOrigin:`http://127.0.0.1:${currentPort}`,audioLocked:isSilentCastTest,handleTrusted,
       deviceStore:remoteConfig?createDeviceStore(path.join(DATA_DIR,"remote")):undefined,
       tlsProvider:remoteConfig?.tlsProvider,persistEnabled:remoteConfig?.persistEnabled,
       transportHost:remoteConfig?.bindAddress,transportAllowedHosts:remoteConfig?[remoteConfig.host]:undefined,transportEndpoint:remoteConfig?.endpoint,

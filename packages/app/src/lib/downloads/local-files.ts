@@ -1,3 +1,4 @@
+import {createFileAccessBudget} from "./file-access-budget.mjs";
 import fs, { type BigIntStats } from "node:fs";
 import { open, realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
@@ -11,7 +12,9 @@ import {
   type LocalPlaybackIdentity,
 } from "./local-identity";
 
-const gates=globalThis as typeof globalThis & {__flyxTrashing?:Set<string>};
+const gates=globalThis as typeof globalThis & {__flyxTrashing?:Set<string>;__flyxFileAccessBudget79?:ReturnType<typeof createFileAccessBudget>};
+// Next bundles routes separately, so admission must be shared across routes.
+const fileAccess=gates.__flyxFileAccessBudget79 ??= createFileAccessBudget();
 export const trashingDownloads=gates.__flyxTrashing ??= new Set<string>();
 export function localFileRevision(stat: BigIntStats): string {
   return createHash("sha256")
@@ -67,6 +70,7 @@ export async function openDownloadFile(
     file = path.resolve(filepath);
   if (path.dirname(file) !== root || ![".mp4", ".m4v"].includes(path.extname(file).toLowerCase()))
     return null;
+  return fileAccess(async()=>{
   let handle: FileHandle | undefined;
   try {
     const canonicalRoot = await realpath(root);
@@ -110,6 +114,7 @@ export async function openDownloadFile(
     await handle?.close().catch(() => {});
     return null;
   }
+  },async value=>{await value.handle.close();});
 }
 
 export async function findLocalDownloadSources(
@@ -127,7 +132,9 @@ export async function findLocalDownloadSources(
     requiresSegmentProxy: false;
   }> = [];
   const seen = new Set<string>();
+  const deadline=Date.now()+1000;
   for (const job of [...jobs].sort((a, b) => b.updatedAt - a.updatedAt)) {
+    if(Date.now()>=deadline)break;
     if (
       !matchesLocalDownload(job, identity) ||
       !job.filepath ||

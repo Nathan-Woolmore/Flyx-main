@@ -1,3 +1,4 @@
+import {createPreparationTrace,preparationID} from './preparation-trace.mjs';
 import {publicSourceInfo} from './source-info.mjs';
 import {createReviews} from './reviews.mjs';
 import {createHome} from './home.mjs';
@@ -15,23 +16,30 @@ import { RemoteCore } from './remote-core.mjs';
 import { PairingApproval } from './pairing.mjs';
 import { catalogFailure, catalogMessages, createCatalog } from './catalog.mjs';
 import { createRemoteHandler } from './protocol.mjs';
-export function installRemoteBridge({audioLocked = false, mediaOrigin, handleTrusted, send, isMainFrame, deviceStore, tlsProvider, persistEnabled = async()=>{}, transportEndpoint, transportHost = "127.0.0.1", transportAllowedHosts = ["127.0.0.1"], timeoutMS = 25000, makeID = randomUUID, makeToken = () => randomBytes(32).toString('base64url'), makeSecret = () => randomBytes(32).toString('hex'), now = Date.now}) {
+export function installRemoteBridge({diagnostic = ()=>{}, audioLocked = false, mediaOrigin, handleTrusted, send, isMainFrame, deviceStore, tlsProvider, persistEnabled = async()=>{}, transportEndpoint, transportHost = "127.0.0.1", transportAllowedHosts = ["127.0.0.1"], timeoutMS = 25000, makeID = randomUUID, makeToken = () => randomBytes(32).toString('base64url'), makeSecret = () => randomBytes(32).toString('hex'), now = Date.now}) {
   const waiting = new Map();
   function request(action, payload) {
     if (waiting.size >= 16) return Promise.reject(new Error('Mac busy'));
-    const requestID = makeID();
+    const requestID = (action==='phoneMedia'?preparationID(payload?.preparationID):undefined)??makeID();
+    const trace=action==='phoneMedia'&&payload?.operation==='prepare-title'?createPreparationTrace({requestID,emit:diagnostic,now}):undefined;
+    trace?.('ipc-start',payload.selection);
     return new Promise((resolve,reject) => {
-      const timer=setTimeout(() => {waiting.delete(requestID);reject(action==='catalog'?catalogFailure('CATALOG_TIMEOUT'):playbackFailure('MAC_RENDERER_TIMEOUT'));},timeoutMS);
-      waiting.set(requestID,{resolve,reject,timer,action});
+      const timer=setTimeout(() => {trace?.('ipc-timeout',{errorCode:'MAC_RENDERER_TIMEOUT'});waiting.delete(requestID);reject(action==='catalog'?catalogFailure('CATALOG_TIMEOUT'):playbackFailure('MAC_RENDERER_TIMEOUT'));},timeoutMS);
+      waiting.set(requestID,{resolve,reject,timer,action,trace});
       try { send('flyx:remote-request',{requestID,action,payload}); }
-      catch(error) {clearTimeout(timer);waiting.delete(requestID);reject(error);}
+      catch(error) {trace?.('ipc-send-error');clearTimeout(timer);waiting.delete(requestID);reject(error);}
     });
   }
   const core=new RemoteCore({now,makeID,makeToken,dispatch:command => {if(audioLocked&&['volume','mute'].includes(command.type))throw Object.assign(new Error('Mac silent playback setting is enabled'),{code:'PLAYBACK_AUDIO_LOCKED'});return request('command',command);},loadDevices:deviceStore?.loadDevices,saveDevices:deviceStore?.saveDevices});
   const pairing=new PairingApproval({core,makeSecret,makeID,now,enrollmentStore:deviceStore});
   const local=(channel,fn) => handleTrusted(channel,(event,payload) => {if(!isMainFrame(event)) throw new Error('Untrusted remote sender'); return fn(payload);});
+  local('flyx:remote-trace', event => {
+    const pending=waiting.get(event?.requestID);
+    if(pending?.trace)pending.trace(event?.phase,event);
+  });
   local('flyx:remote-reply', reply => {
     const pending=waiting.get(reply?.requestID); if(!pending) return;
+    pending.trace?.('ipc-reply',{ok:reply.ok===true,errorCode:reply.errorCode,sourceCount:reply.data?.sources?.length});
     waiting.delete(reply.requestID); clearTimeout(pending.timer);
     reply.ok ? pending.resolve(reply.data) : pending.reject(playbackMessages[reply.errorCode]?playbackFailure(reply.errorCode):['catalog','watchlist','manga'].includes(pending.action)?catalogFailure(catalogMessages[reply.errorCode]?reply.errorCode:'CATALOG_UNAVAILABLE'):playbackFailure('MAC_OPERATION_FAILED'));
   });
@@ -61,7 +69,7 @@ export function installRemoteBridge({audioLocked = false, mediaOrigin, handleTru
   const downloads=createDownloads(spec=>request('downloads',spec),catalog);
   const watchlist=createWatchlist(spec=>request('watchlist',spec),catalog);
   const manga=createManga(spec=>request('manga',spec));
-  const phoneMedia=mediaOrigin?createPhoneMedia(spec=>request('phoneMedia',spec),{origin:mediaOrigin}):undefined;
+  const phoneMedia=mediaOrigin?createPhoneMedia(spec=>request('phoneMedia',spec),{origin:mediaOrigin,diagnostic}):undefined;
   const progress=phoneMedia?createRemoteProgress(spec=>request('progress',spec),phoneMedia):undefined;
   const transfers=phoneMedia?createTransferRuntime(spec=>request('transfer',spec),phoneMedia,{onOriginSnapshot:source=>progress.recordSnapshot(source)}):undefined;
   const sources=createRemoteSources(spec=>request('sources',spec));

@@ -400,7 +400,7 @@ export async function getMangaDetailsWithChapters(slug: string): Promise<MangaDa
 
   const ulid = (details as any)._ulid as string;
   if (ulid) {
-    const chapters = await getChapterList(ulid);
+    const chapters = await getChapterList(ulid, undefined, true);
     details.chapters = chapters;
     details.totalChapters = chapters.length;
   }

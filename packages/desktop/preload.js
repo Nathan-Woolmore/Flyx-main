@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld("flyxDesktop", {
   remote: {
     updatePermissions: (id, watchlist, downloads) => ipcRenderer.invoke("flyx:remote-permissions", {id,watchlist,downloads}),
     onRequest: (callback) => { const listener = (_event, request) => callback(request); ipcRenderer.on("flyx:remote-request", listener); return () => ipcRenderer.removeListener("flyx:remote-request", listener); },
+    trace: (event) => ipcRenderer.invoke("flyx:remote-trace", event),
     reply: (reply) => ipcRenderer.invoke("flyx:remote-reply", reply),
     beginPairing: () => ipcRenderer.invoke("flyx:remote-pair-begin"),
     approvalState: () => ipcRenderer.invoke("flyx:remote-approval-state"),

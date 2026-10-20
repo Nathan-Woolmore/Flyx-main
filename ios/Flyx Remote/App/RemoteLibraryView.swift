@@ -2,7 +2,12 @@ import SwiftUI
 struct RemoteLibraryView: View {
     let client: RemoteClient
     var watchlist:RemoteWatchlist? = nil
-    @State private var browser = CatalogBrowser()
+    @State private var browser:CatalogBrowser
+    @Environment(\.applicationMode) private var applicationMode
+    init(client:RemoteClient,watchlist:RemoteWatchlist?=nil,initialKind:String="movie"){
+        self.client=client;self.watchlist=watchlist;let model=CatalogBrowser();model.select(initialKind);_browser=State(initialValue:model)
+    }
+    private var requiresToken:Bool{client.isStandalone && ["movie","tv"].contains(browser.request.kind) && !StandaloneCredentials.hasToken}
     @State private var filtersPresented = false
     @State private var voteQualification=false
     @State private var path: [RemoteTitle] = []
@@ -11,8 +16,9 @@ struct RemoteLibraryView: View {
     var body: some View {
         NavigationStack(path:$path) {ScrollViewReader{scroll in VStack(spacing:0){catalogueHeader.zIndex(100)
                 ScrollView {
+                    if requiresToken {VStack(alignment:.leading,spacing:16){Label("Connect your movie catalogue",systemImage:"film.stack").font(.title3.bold());Text("Movies and TV use your personal TMDB API key or API Read Access Token. Add it securely on this iPhone to browse and search. Anime and Manga are ready without a token.").foregroundStyle(.secondary);Button("Set up TMDB access"){applicationMode?.settings=true}.buttonStyle(.borderedProminent).foregroundStyle(FlyxTheme.ink)}.frame(maxWidth:.infinity,alignment:.leading).padding(20).background(FlyxTheme.card,in:.rect(cornerRadius:20)).padding(.top,16)}
                     LazyVGrid(columns:CatalogLayout.columns,spacing:CatalogLayout.rowSpacing) {
-                        if browser.showsSkeleton {
+                        if browser.showsSkeleton && !requiresToken {
                             ForEach(0..<8,id:\.self) { _ in CatalogSkeletonCard() }
                         } else {
                             let cardRequest=browser.request
@@ -32,10 +38,10 @@ struct RemoteLibraryView: View {
                     }
                     .background(.black)
                     .toolbar(path.isEmpty ? .hidden:.visible,for:.navigationBar)
-                .navigationDestination(for:RemoteTitle.self){RemoteDetailView(client:client,item:$0,watchlist:watchlist)}
-                .sheet(isPresented:$filtersPresented){CatalogFilterSheet(request:browser.request,supportsVoteQualification:voteQualification){browser.apply($0)}}
+                .navigationDestination(for:RemoteTitle.self){RemoteDetailView(client:client,item:$0,watchlist:watchlist).toolbar{ToolbarItem(placement:.topBarTrailing){AppSettingsButton()}}}
+                .sheet(isPresented:$filtersPresented){CatalogFilterSheet(request:browser.request,supportsVoteQualification:voteQualification,isStandalone:client.isStandalone){browser.apply($0)}}
                 .task{struct Features:Decodable{var features:[String]?};if let value:Features=try? await client.request("/remote/v1/info"){voteQualification=value.features?.contains("catalog.minVotes")==true}}
-                .task(id:browser.request){await load()}
+                .task(id:"\(client.baseURL):\(browser.request)"){browser.useSource(client.baseURL);await load()}
                 #if DEBUG
                 .onChange(of:path){_,value in UIOnlyProtocol.probe(["navigationKinds":value.map(\.kind),"navigationCount":value.count])}
                 .onChange(of:browser.request.kind){_,value in UIOnlyProtocol.probe(["catalogueSelectedKind":value])}
@@ -49,7 +55,7 @@ struct RemoteLibraryView: View {
         }}
     }
     private var catalogueHeader:some View {VStack(spacing:8){
-                    HStack(alignment:.firstTextBaseline,spacing:10){Text("Flyx").font(.title2.bold()).foregroundStyle(FlyxTheme.accent);Text("Browse").font(.title2.bold());Spacer();MacConnectionIndicator(client:client)}.frame(minHeight:36)
+                    HStack(alignment:.firstTextBaseline,spacing:10){Text("Flyx").font(.title2.bold()).foregroundStyle(FlyxTheme.accent);Text("Browse").font(.title2.bold());Spacer();MacConnectionIndicator(client:client,compact:true);AppSettingsButton()}.frame(minHeight:44)
                 GlassCategorySelector(selected:browser.request.kind){searchFocused=false;path.removeAll();browser.select($0)}
                 HStack {
                     Image(systemName:"magnifyingglass").foregroundStyle(.secondary)
@@ -63,6 +69,7 @@ struct RemoteLibraryView: View {
                 else if browser.request != CatalogRequest(kind:browser.request.kind){HStack{Text(browser.request.filters.activeCount>0 ? "\(browser.request.filters.activeCount) active filters":"Search results");Spacer();Button("Reset"){browser.reset()}}.font(.caption).foregroundStyle(.secondary).frame(minHeight:28)}
                     }.padding(.horizontal,CatalogLayout.inset).padding(.top,2).padding(.bottom,10).background{ZStack{Color.black.contentShape(Rectangle()).onTapGesture{searchFocused=false};CatalogueGlassHeader()}}.contentShape(Rectangle()).zIndex(100)}
     private func load(more:Bool=false) async {
+        guard !requiresToken else{return}
         await browser.load(more:more){selection,page in try await client.catalog(selection,page:page)}
         if browser.snapshot.loaded {await ConnectionVerification.shared.loadedCatalog(itemCount:browser.snapshot.items.count)}
     }
@@ -119,9 +126,10 @@ struct CatalogFilterSheet:View {
     let request:CatalogRequest
     let apply:(CatalogFilters)->Void
     var supportsVoteQualification:Bool
+    var isStandalone:Bool
     @Environment(\.dismiss) private var dismiss
     @State private var draft:CatalogFilters
-    init(request:CatalogRequest,supportsVoteQualification:Bool=false,apply:@escaping(CatalogFilters)->Void){self.request=request;self.supportsVoteQualification=supportsVoteQualification;self.apply=apply;_draft=State(initialValue:request.filters)}
+    init(request:CatalogRequest,supportsVoteQualification:Bool=false,isStandalone:Bool=false,apply:@escaping(CatalogFilters)->Void){self.request=request;self.supportsVoteQualification=supportsVoteQualification;self.isStandalone=isStandalone;self.apply=apply;_draft=State(initialValue:request.filters)}
     private var genres:[(String,String)] {
         switch request.kind {
         case "movie":return [("28","Action"),("12","Adventure"),("16","Animation"),("35","Comedy"),("80","Crime"),("99","Documentary"),("18","Drama"),("14","Fantasy"),("27","Horror"),("9648","Mystery"),("10749","Romance"),("878","Science fiction"),("53","Thriller")]
@@ -138,14 +146,14 @@ struct CatalogFilterSheet:View {
                 Picker("Minimum rating",selection:$draft.minRating){Text("Any rating").tag(0);ForEach(1..<10){Text("\($0)+ / 10").tag($0)}}
                 if !draft.isValid {Text("Use years from 1900 through this year, with From no later than Through.").foregroundStyle(.orange)}
             }
-        } else {Section {Text("This manga provider supports title search and popular/latest feeds. Genre, year, rating and pagination are unavailable.").font(.footnote).foregroundStyle(.secondary)}}
+        } else {Section {Text(isStandalone ? "MangaDex supports title search, popularity/latest feeds and pagination. Genre, year and rating filters are unavailable.":"This manga provider supports title search and popular/latest feeds. Genre, year, rating and pagination are unavailable.").font(.footnote).foregroundStyle(.secondary)}}
         Section("Order") {
             if !request.query.isEmpty && request.kind != "anime" {Text("Text searches use provider relevance. Movie/TV filters continue across provider pages.").font(.footnote).foregroundStyle(.secondary)}
             else {Picker("Sort",selection:$draft.sort){Text("Popularity").tag("popularity");if request.kind != "manga"{Text("Top rated").tag("rating").disabled(!supportsVoteQualification)};Text(request.kind == "manga" ? "Latest updates":"Newest").tag("release_date")}}
         }
         if request.kind != "manga" {
-            if draft.sort=="rating",supportsVoteQualification {Section("Rating confidence"){TextField("Minimum number of rating votes",value:$draft.minVotes,format:.number).keyboardType(.numberPad).accessibilityIdentifier("filters.min-votes");Text("Only titles with at least \(draft.minVotes) rating votes qualify. Default: 10.").font(.footnote).foregroundStyle(.secondary);if request.kind=="anime"{Text("Anime uses actual scored-by votes. The Mac checks each provider page; member/popularity counts are not votes.").font(.footnote).foregroundStyle(.secondary)}}}
-            if !supportsVoteQualification{Text("Top rated with a minimum vote count requires the updated Mac catalogue bridge.").font(.footnote).foregroundStyle(.secondary)}
+            if draft.sort=="rating",supportsVoteQualification {Section("Rating confidence"){TextField("Minimum number of rating votes",value:$draft.minVotes,format:.number).keyboardType(.numberPad).accessibilityIdentifier("filters.min-votes");Text("Only titles with at least \(draft.minVotes) rating votes qualify. Default: 10.").font(.footnote).foregroundStyle(.secondary);if request.kind=="anime"{Text(isStandalone ? "Anime uses the number of submitted scores from AniList, rather than popularity/member counts.":"Anime uses actual scored-by votes. The Mac checks each provider page; member/popularity counts are not votes.").font(.footnote).foregroundStyle(.secondary)}}}
+            if !supportsVoteQualification{Text(isStandalone ? "This catalogue does not currently support top rated with a minimum vote count.":"Top rated with a minimum vote count requires the updated Mac catalogue bridge.").font(.footnote).foregroundStyle(.secondary)}
         }
         Section {Button("Clear filters"){draft=CatalogFilters()}}
     }.navigationTitle("Filters").navigationBarTitleDisplayMode(.inline).toolbar {

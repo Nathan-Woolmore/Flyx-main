@@ -50,7 +50,7 @@ test('phone Play traverses protocol → scopes → Electron → renderer → pla
 test('selected player failure returns failure without reporting playing',async()=>{
  const f=fixture({ready:false}),token=await f.pair();
  const response=await f.request('POST','/remote/v1/commands',{id:'one',type:'play',kind:'movie',contentID:7},token);
- assert.equal(response.status,400);assert.equal(f.calls.some(c=>c[0]==='play'),false);f.bridge.dispose();
+ assert.equal(response.status,502);assert.equal(response.body.code,'MAC_OPERATION_FAILED');assert.equal(f.calls.some(c=>c[0]==='play'),false);f.bridge.dispose();
 });
 test('revocation and browser-origin requests cannot reach Mac operations',async()=>{
  const f=fixture(),token=await f.pair(),snapshot=await f.local('flyx:remote-approval-state');
@@ -78,7 +78,7 @@ test('renderer timeout reports failure and never claims playback',async()=>{
  handlers.get('flyx:remote-approve')({},{id:pending.body.requestID});
  const grant=await bridge.handle({method:'POST',path:'/remote/v1/pair/collect',body:{requestID:pending.body.requestID}});
  const result=await bridge.handle({method:'POST',path:'/remote/v1/commands',headers:{authorization:`Bearer ${grant.body.token}`},body:{id:'timeout-command',type:'pause'}});
- assert.equal(result.status,400);assert.equal(result.body.status,undefined);bridge.dispose();
+ assert.equal(result.status,502);assert.equal(result.body.code,'MAC_RENDERER_TIMEOUT');assert.equal(result.body.status,undefined);bridge.dispose();
 });
 
 test('Cast uses only discovered ID plus Mac prepared media and pauses only after load acknowledgement',async()=>{

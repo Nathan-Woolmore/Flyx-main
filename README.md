@@ -520,3 +520,9 @@ Flyx is an npm-workspace/Turborepo monorepo. `packages/app` contains the Next.js
 This README describes setup in the current checkout. Some older supporting guides describe earlier UI/setup behavior; use the steps here for installation.
 
 Self-hosting gives you control over the local instance and its stored data. Flyx still connects to TMDB, streaming providers, and upstream services; self-hosting does not make those requests anonymous.
+
+## iPhone companion source
+
+The iPhone companion and Mac application share this repository. Open `ios/Flyx Remote/Flyx Remote.xcodeproj` for iOS development. Local signing stays in the ignored `Config/LocalSigning.xcconfig` inside that iOS project; no second signing source checkout is required.
+
+Run `python3 scripts/build-ios.py` for a signed device build or add `--simulator` for the isolated preview. Products, logs, package caches and recoverable archives live outside source in the sibling `Flyx Artifacts` directory. See the [iPhone project guide](ios/Flyx%20Remote/README.md).

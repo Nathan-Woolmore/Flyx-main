@@ -1,0 +1,2 @@
+// Shared project defaults with optional private settings for this checkout.
+#include? "LocalSigning.xcconfig"

@@ -33,12 +33,14 @@ struct HomeFeedResponse:Decodable,Sendable {
     private(set) var error:String?
     private(set) var requiresUpdate=false
     private(set) var checkedAt:Date?
+    private var source:URL?
     private var category="all"
     private var generation=UUID()
     private var cached:[String:HomeFeedResponse]=[:]
     func represents(_ value:String)->Bool{category==value}
     func visibleSections(for value:String)->[HomeFeedSection]{let source=category==value ? sections:(cached[value]?.sections ?? []);return source.filter{value=="all" || $0.kind==value}}
     func load(_ client:RemoteClient,category:String="all",refresh:Bool=false)async {
+        if source != client.baseURL{source=client.baseURL;generation=UUID();loading=false;checkedAt=nil;cached.removeAll();error=nil}
         if self.category != category {
             self.category=category;generation=UUID();loading=false;error=nil
             sections=cached[category]?.sections ?? []
@@ -70,6 +72,7 @@ struct HomeFeedResponse:Decodable,Sendable {
     let watchlist:RemoteWatchlist
     @Environment(\.playbackSession) private var playback
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.applicationMode) private var applicationMode
     @State private var feed=NativeHomeFeed()
     @State private var path:[RemoteTitle]=[]
     @State private var category="all"
@@ -87,7 +90,7 @@ struct HomeFeedResponse:Decodable,Sendable {
                             if let message=feed.error,feed.represents(category){status(message)}
                             if let featured{HomeFeaturedCard(entry:featured,client:client,watchlist:watchlist).padding(.horizontal,20)}
                             if !watchlist.items.isEmpty,category=="all" {
-                                HomePosterRail(title:"Your watchlist",subtitle:"Saved on your Mac",entries:Array(watchlist.items.prefix(16)).map{HomeFeedEntry(id:$0.stableID,title:$0)},client:client,watchlist:watchlist)
+                                HomePosterRail(title:"Your watchlist",subtitle:watchlist.syncMessage ?? "Saved titles",entries:Array(watchlist.items.prefix(16)).map{HomeFeedEntry(id:$0.stableID,title:$0)},client:client,watchlist:watchlist)
                             }
                             ForEach(sections){section in
                                 VStack(alignment:.leading,spacing:12){
@@ -101,14 +104,17 @@ struct HomeFeedResponse:Decodable,Sendable {
                             }
                         }
                     }.padding(.top,12).padding(.bottom,28)
+                    .safeAreaPadding(.bottom,20)
                 }.refreshable{await feed.load(client,category:category,refresh:true)}
                 #if DEBUG
                 .defaultScrollAnchor(ProcessInfo.processInfo.arguments.contains("home-footer46") ? .bottom:.top)
                 #endif
-            }.background(FlyxTheme.background)
+            }.background(FlyxTheme.background.ignoresSafeArea())
                 .toolbar(path.isEmpty ? .hidden:.visible,for:.navigationBar)
-                .navigationDestination(for:RemoteTitle.self){RemoteDetailView(client:client,item:$0,watchlist:watchlist)}
-                .task(id:category){await feed.load(client,category:category)}
+                .navigationDestination(for:RemoteTitle.self){RemoteDetailView(client:client,item:$0,watchlist:watchlist).toolbar{ToolbarItem(placement:.topBarTrailing){AppSettingsButton()}}}
+                .task(id:"\(client.baseURL):\(category)"){await feed.load(client,category:category)}
+                .onAppear{applicationMode?.homeAtRoot=path.isEmpty}
+                .onChange(of:path){_,value in applicationMode?.homeAtRoot=value.isEmpty}
                 .onChange(of:scenePhase){_,phase in if phase == .active,path.isEmpty{Task{await feed.load(client,category:category)}}}
         }
     }
@@ -118,14 +124,15 @@ struct HomeFeedResponse:Decodable,Sendable {
                 Text("Flyx").font(.title2.bold()).foregroundStyle(FlyxTheme.accent)
                 Text("Home").font(.title2.bold())
                 Spacer(minLength:8)
-                MacConnectionIndicator(client:client)
+                MacConnectionIndicator(client:client,compact:true)
+                AppSettingsButton()
                 Button{playback?.selectedTab="browse"}label:{Image(systemName:"magnifyingglass").font(.title3).frame(width:44,height:44).background(FlyxTheme.card,in:.circle)}.accessibilityLabel("Search and browse all titles")
             }.padding(.horizontal,20)
             ScrollView(.horizontal){HStack(spacing:8){ForEach(categories,id:\.0){choice in
                 Button{category=choice.0}label:{Text(choice.1).font(.subheadline.weight(.semibold)).padding(.horizontal,17).frame(minHeight:44).foregroundStyle(category==choice.0 ? FlyxTheme.ink:.white).background(category==choice.0 ? FlyxTheme.accent:FlyxTheme.card,in:.capsule)}
                     .buttonStyle(.plain).accessibilityAddTraits(category==choice.0 ? .isSelected:[])
             }}.padding(.horizontal,20)}.scrollIndicators(.hidden)
-        }.padding(.top,2).padding(.bottom,12).background(.black)
+        }.padding(.top,2).padding(.bottom,12).background(FlyxTheme.background)
     }
     private func status(_ message:String)->some View {
         VStack(alignment:.leading,spacing:10){

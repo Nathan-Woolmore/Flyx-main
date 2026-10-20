@@ -14,7 +14,7 @@ struct RememberedConnection: Codable, Sendable {
               (43...512).contains(token.count),!deviceID.isEmpty else {throw RemoteFailure(message:"Invalid prepared phone connection")}
     }
 }
-struct RestoredSession: Decodable {let deviceID:String;let scopes:[String];let expiresAt:Double}
+struct RestoredSession: Decodable, Sendable {let deviceID:String;let scopes:[String];let expiresAt:Double}
 
 /// One paired Mac, protected by the app's own non-synchronizing, this-device-only Keychain group.
 final class RememberedConnectionStore {

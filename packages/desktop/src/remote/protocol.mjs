@@ -53,7 +53,7 @@ export function createRemoteHandler({core, pairing, catalog, home, reviews, stat
     } catch (error) {
       if(playbackMessages[error.code])return{status:error.code==='PLAYBACK_OUTPUT_CHANGED'?409:error.code==='PLAYBACK_AUDIO_LOCKED'?423:502,body:{code:error.code,error:playbackMessages[error.code]}};
       if(error.name==='CatalogRequestError')return{status:400,body:{error:error.message,code:'CATALOG_INVALID_REQUEST'}};
-      if(catalogMessages[error.code])return{status:error.code==='CATALOG_NOT_FOUND'?404:error.code==='CATALOG_RATE_LIMITED'?429:error.code==='CATALOG_TIMEOUT'?504:502,body:{error:catalogMessages[error.code],code:error.code}};
+      if(catalogMessages[error.code])return{status:error.code==='WATCHLIST_SCOPE_CHANGED'?409:error.code==='CATALOG_NOT_FOUND'?404:error.code==='CATALOG_RATE_LIMITED'?429:error.code==='CATALOG_TIMEOUT'?504:502,body:{error:catalogMessages[error.code],code:error.code}};
       const unauthorized = error.message === 'Unauthorized';
       return {status:unauthorized ? 401 : 400, body:{error:unauthorized ? 'Pairing required or permission revoked' : 'Request failed'}};
     }

@@ -79,13 +79,13 @@ final class LoopbackHLS:@unchecked Sendable {
             let supplied=headers["cookie"]?.components(separatedBy:";").map{$0.trimmingCharacters(in:.whitespaces)} ?? []
             guard supplied.contains("flyxLocal="+self.secret) else{
 #if DEBUG
-if ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("details-hls")}){UIOnlyProtocol.probe(["hlsUnauthenticatedRefused":true])}
+if ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("details-hls") || $0=="--standalone-movie54" || $0=="fullscreen-lifecycle70"}){UIOnlyProtocol.probe(["hlsUnauthenticatedRefused":true])}
 #endif
 self.reply(connection,id:id,status:401,type:"text/plain",body:Data());return}
             let resourceID=String(parts[1].split(separator:"/").last!),range=headers["range"]
             if let range,range.range(of:"^bytes=[0-9]{1,15}-[0-9]{0,15}$",options:.regularExpression)==nil{self.reply(connection,id:id,status:400,type:"text/plain",body:Data());return}
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("details-hls")}){self.fixtureResources.insert(resourceID);UIOnlyProtocol.probe(["hlsResourceIDs":Array(self.fixtureResources).sorted(),"hlsLocalRequestsAuthenticated":true,"hlsListenerHost":"127.0.0.1"])}
+            if ProcessInfo.processInfo.arguments.contains(where:{$0.hasPrefix("details-hls") || $0=="--standalone-movie54" || $0=="fullscreen-lifecycle70"}){self.fixtureResources.insert(resourceID);UIOnlyProtocol.probe(["hlsResourceIDs":Array(self.fixtureResources).sorted(),"hlsLocalRequestsAuthenticated":true,"hlsListenerHost":"127.0.0.1"])}
             #endif
             self.tasks[id]=Task {
                 do {
@@ -106,11 +106,15 @@ self.reply(connection,id:id,status:401,type:"text/plain",body:Data());return}
     private func reply(_ connection:NWConnection,id:ObjectIdentifier,status:Int,type:String,body:Data,contentRange:String?=nil){
         guard !closed,connections[id] != nil else{return}
         let allowed=["application/vnd.apple.mpegurl","video/mp2t","video/mp4","audio/aac","audio/mp4","application/octet-stream","text/plain"]
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--standalone-movie54"),!allowed.contains(type){UIOnlyProtocol.probe(["movieLocalRejectedMIME":type,"movieLocalRejectedBytes":body.count])}
+        #endif
         guard allowed.contains(type) else{connection.cancel();connections.removeValue(forKey:id);tasks.removeValue(forKey:id);return}
         var headers="HTTP/1.1 \(status) Response\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n"
         if let contentRange,contentRange.range(of:"^bytes [0-9]+-[0-9]+/[0-9]+$",options:.regularExpression) != nil{headers+="Content-Range: \(contentRange)\r\nAccept-Ranges: bytes\r\n"}
         var response=Data((headers+"\r\n").utf8);response.append(body)
         connection.send(content:response,completion:.contentProcessed{_ in connection.cancel();self.connections.removeValue(forKey:id);self.tasks.removeValue(forKey:id);self.timers.removeValue(forKey:id)?.cancel()})
     }
+    func isUsable()async->Bool{await withCheckedContinuation{continuation in queue.async{if !self.closed,let listener=self.listener,case .ready=listener.state{continuation.resume(returning:true)}else{continuation.resume(returning:false)}}}}
     func stop(){queue.async{self.closed=true;self.listener?.newConnectionHandler=nil;self.listener?.stateUpdateHandler=nil;self.listener?.cancel();self.listener=nil;self.failStart();self.tasks.values.forEach{$0.cancel()};self.tasks.removeAll();self.timers.values.forEach{$0.cancel()};self.timers.removeAll();self.connections.values.forEach{$0.cancel()};self.connections.removeAll()}}
 }

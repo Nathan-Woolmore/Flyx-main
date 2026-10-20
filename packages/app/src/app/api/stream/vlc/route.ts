@@ -29,6 +29,8 @@
  * characters — a newline would inject extra entries into the .m3u.
  */
 
+import {sessionWithinBudget} from "@/lib/auth/session-budget.mjs";
+import {createPreparationTrace} from "@/lib/remote/preparation-trace.mjs";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveAnimeTitle } from "@/lib/anime-title";
 import { pipeline } from "@/lib/extraction";
@@ -80,7 +82,7 @@ interface Resolved {
   sources?: StreamSource[];
 }
 
-async function resolve(request: NextRequest, admin: boolean): Promise<Resolved> {
+async function resolve(request: NextRequest, admin: boolean, trace: ReturnType<typeof createPreparationTrace>): Promise<Resolved> {
   const { searchParams } = new URL(request.url);
 
   // ── Raw source (player hand-off) ────────────────────────────
@@ -121,17 +123,23 @@ async function resolve(request: NextRequest, admin: boolean): Promise<Resolved> 
     throw Object.assign(new Error("Only video can be opened in VLC"), { status: 400 });
   }
 
+  const identity={kind:item.malId?'anime':item.mediaType==='movie'?'movie':'tv',contentID:item.malId??item.tmdbId,season:item.season,episode:item.episode,provider:item.provider};
   if (admin && (!item.provider || item.provider === "local")) {
+    trace('local-start',identity);
     const local = await findLocalDownloadSources(listJobs(), getDownloadDir(), item);
     const chosen = pickBestSource(local, item.quality);
+    trace('local-done',{...identity,sourceCount:local.length});
     if (chosen) return { source: chosen, sources: local, provider: "local", title: handoffTitle(item) };
     if (searchParams.get("localOnly") === "1") throw Object.assign(new Error("No completed local source"), { status: 404 });
     if (item.provider === "local") item.provider = undefined;
   }
 
   if (item.malId && (!item.title || /^(Anime|MAL ID|Title)\s+\d+$/i.test(item.title))) {
+    trace('metadata-start',identity);
     item.title = (await resolveAnimeTitle(item.malId)) ?? item.title;
+    trace('metadata-done',{...identity,aborted:request.signal.aborted});
   }
+  trace('extract-start',identity);
   const result = await pipeline.extract(
     {
       tmdbId: item.tmdbId,
@@ -143,6 +151,7 @@ async function resolve(request: NextRequest, admin: boolean): Promise<Resolved> 
     },
     { provider: item.provider, signal: request.signal },
   );
+  trace('extract-done',{...identity,ok:result.success,sourceCount:result.sources.length,aborted:request.signal.aborted});
   if (!result.success || result.sources.length === 0) {
     throw Object.assign(new Error("No stream sources found for this title"), { status: 404 });
   }
@@ -174,7 +183,32 @@ async function resolve(request: NextRequest, admin: boolean): Promise<Resolved> 
 }
 
 export async function GET(request: NextRequest) {
-  const session = await getSession();
+  const trace=createPreparationTrace({requestID:new URL(request.url).searchParams.get('preparationID'),emit:event=>console.info('[remote-prepare] '+JSON.stringify(event))});
+  trace('route-enter');
+  const aborted=()=>trace('route-abort',{aborted:true});
+  request.signal.addEventListener('abort',aborted,{once:true});
+  try {
+    const response=await getResponse(request,trace);
+    trace('route-response',{status:response.status,aborted:request.signal.aborted});
+    return response;
+  } catch(error) {
+    trace('route-error',{errorName:error instanceof Error?error.name:undefined,aborted:request.signal.aborted});
+    throw error;
+  } finally {request.signal.removeEventListener('abort',aborted);}
+}
+
+async function getResponse(request: NextRequest,trace:ReturnType<typeof createPreparationTrace>) {
+  trace('auth-start');
+  let session;
+  try {session=await sessionWithinBudget(()=>getSession(),{signal:request.signal});}
+  catch(error) {
+    if(error instanceof Error && 'code' in error && error.code==='PHONE_AUTH_TIMEOUT'){
+      trace('auth-timeout',{errorCode:'PHONE_AUTH_TIMEOUT'});
+      return NextResponse.json({ok:false,code:'PHONE_AUTH_TIMEOUT',error:'The Mac session check timed out before media preparation. Keep Flyx open and retry.'},{status:503,headers:{'Cache-Control':'no-store'}});
+    }
+    throw error;
+  }
+  trace('auth-done',{ok:!!session});
   if (!session) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -195,7 +229,7 @@ export async function GET(request: NextRequest) {
 
   let resolved: Resolved;
   try {
-    resolved = await resolve(request, session.isAdmin);
+    resolved = await resolve(request, session.isAdmin,trace);
   } catch (err) {
     const status = (err as { status?: number }).status ?? 500;
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status });
