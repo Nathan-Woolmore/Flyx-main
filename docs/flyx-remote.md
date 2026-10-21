@@ -13,13 +13,15 @@ The iOS tree is not an npm workspace or an Electron resource. The existing Mac b
 
 ## Setup checklist
 
-1. Use the `feat/native-mac-cast` branch for the matching Mac and iOS source. The general README's upstream release downloads do not include this companion work.
-2. Build the Mac app on a Mac with Node.js/npm and Apple's command-line compiler tools, following the commands below. Complete the normal Flyx account/provider setup and keep that Mac app running.
-3. Open `ios/Flyx Remote/Flyx Remote.xcodeproj` in Xcode with Swift 6 and an iOS 18 or later SDK. Use Simulator, or select your own signing team and available bundle identifier to run it on your iPhone/iPad. See the [iOS build instructions](../ios/Flyx%20Remote/README.md).
-4. Before remote pairing, manually create the Mac's private TLS certificate/key and `remote/config.json` as described below. There is no automatic certificate/setup wizard; opening both apps alone does not enable the connection.
-5. Put the devices on the same local network, enable **Settings → Security → Flyx Remote** on the Mac, compare the certificate fingerprint, and approve the phone's pairing request on the Mac.
+1. Build the matching Mac and iOS source from this fork's canonical `main` (or the same pairing feature commit on both devices). Upstream releases do not contain this companion work.
+2. Keep both devices on the same local network. In Flyx on the Mac, open **Settings → Connect Devices → Connect your iPhone**. On a new or moved Mac, choose **Review connection setup** and review the native confirmation before creating this Mac's private identity and restarting Flyx. This uses the Mac's existing `.local` name; it does not rename macOS or install system trust.
+3. Choose **Create connection code**, then copy the complete code. It combines the HTTPS endpoint, certificate pin, existing 256-bit pairing secret and expiry. It remains valid for two minutes, with the existing five-attempt limit. Keep it private.
+4. On the iPhone choose **App mode → Mac Remote**. On **Your Mac. In reach.**, paste the code and connect. Approve that iPhone's request explicitly in the Mac panel. Download permissions remain optional.
+5. A remembered Mac always offers **Retry** and **Use a new code**. Offline, old-hostname and rejected connections keep the existing Keychain record until a replacement is approved. Cancel abandons only that request; it cannot revoke an older enrolled device. Browser HTTP QR pairing remains a separate flow.
 
-This is a developer source setup. A general Mac download still needs a release signing/notarization workflow. The iOS app needs personal Xcode signing or a future supported distribution channel; this repository does not supply a generally installable IPA.
+The code supplies the pinned identity out of band; neither public discovery nor a short numeric password establishes trust. DNS resolves the supplied `.local` name. After a same-hostname LAN address change, reviewing setup updates the private binding while retaining the certificate. A changed hostname or expired certificate requires explicit native confirmation and a new phone code. Setup retains previous identity/configuration files and existing account, download and device records. Installation and isolated tests do not establish physical phone playback.
+
+The iOS app needs existing personal Xcode signing or a supported distribution channel. This repository does not supply a generally installable IPA.
 
 ## Mac build
 
@@ -35,7 +37,7 @@ macOS packaging also requires Apple's command-line compiler tools for the native
 
 ## Private listener setup
 
-Remote access defaults off. A fresh source build does not include a TLS identity, endpoint, phone enrollment or remembered-device store. There is currently no first-run TLS provisioning wizard: an operator must prepare a private identity/configuration before the Settings button can enable the listener. This manual step is a remaining installation-readiness limit.
+Remote access defaults off. **Settings → Connect Devices → Connect your iPhone** offers private setup after an explicit native confirmation. Reading setup state or cancelling creates no directory, identity, configuration or enrollment. A new identity is never silently generated during launch. The manual schema below remains an advanced fallback; do not replace an existing identity without the owner's approval.
 
 Use the Mac's own resolvable `.local` hostname and a private IPv4 address assigned to its current LAN interface. Prepare a server certificate with that hostname in its SAN and its private key on that Mac. Keep the `remote` directory inside Flyx's user data directory private (mode `0700`); the configuration, certificate and key must be ordinary, owner-held files with mode `0600`, in that same directory. Symlinks, escaping paths, public/wildcard bindings and unavailable interface addresses are rejected.
 
@@ -52,9 +54,9 @@ For a normal macOS build the data directory is `~/Library/Application Support/fl
 }
 ```
 
-Save it as `remote/config.json`. Keep every referenced file in that directory. Restart your own source-built candidate after configuring it, then enable secure remote in Mac settings when you intend to grant network access. Any macOS Local Network prompt is the owner's decision; do not change privacy databases, disable security protections or forward the port to the internet. A LAN-address change requires updating the local configuration.
+Save it as `remote/config.json`. Keep every referenced file in that directory. Restart your own source-built candidate after configuring it, then enable secure remote in Mac settings when you intend to grant network access. Any macOS Local Network prompt is the owner's decision; do not change privacy databases, disable security protections or forward the port to the internet. A LAN-address change can be reviewed in the connection panel without renaming the Mac.
 
-Compare the certificate fingerprint on both screens before pairing. The HTTPS client validates the pinned identity; it does not require globally trusting a private CA. Pairing offers are short-lived, require explicit Mac approval and return the phone credential once. The Mac persists digests; the iOS Keychain holds its scoped credential. Disable/revoke access from Mac settings. Admin credentials and provider URLs remain on the Mac.
+The complete connection code carries the certificate fingerprint; advanced connection details also show it on the Mac. The HTTPS client validates the pinned identity; it does not require globally trusting a private CA. Pairing offers are short-lived, require explicit Mac approval and return the phone credential once. The Mac persists digests; the iOS Keychain holds its scoped credential. Disable/revoke access from Mac settings. Admin credentials and provider URLs remain on the Mac.
 
 ## Command and media flow
 

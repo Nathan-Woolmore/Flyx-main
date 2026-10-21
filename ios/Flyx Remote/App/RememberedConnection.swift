@@ -17,7 +17,13 @@ struct RememberedConnection: Codable, Sendable {
 struct RestoredSession: Decodable, Sendable {let deviceID:String;let scopes:[String];let expiresAt:Double}
 
 /// One paired Mac, protected by the app's own non-synchronizing, this-device-only Keychain group.
-final class RememberedConnectionStore {
+protocol RememberedConnectionStorage {
+    func save(_ value: RememberedConnection) throws
+    func load() throws -> RememberedConnection?
+    func importPreparedEnrollment() throws
+}
+
+final class RememberedConnectionStore: RememberedConnectionStorage {
     private let query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"local.flyx.remote.pairing",kSecAttrAccount as String:"paired-mac",kSecAttrSynchronizable as String:false]
     func save(_ value:RememberedConnection)throws {
         try value.validate();let bytes=try JSONEncoder().encode(value)

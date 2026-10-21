@@ -10,6 +10,7 @@ export function createRemoteHandler({core, pairing, catalog, home, reviews, stat
       if (method === 'GET' && url.pathname === '/remote/v1/info') return {status:200, body:{protocolVersion:1, name:'Flyx Mac', capabilities:['catalog.read','playback.control'],features:['catalog.minVotes',...(reviews?['catalog.reviews.v1']:[]),...(home?['catalog.home.v1','catalog.home.categories.v1']:[]),...(downloads?['downloads.library.v1']:[]),...(progress?['player.progress.v1']:[]),...(phoneMedia?['phone.direct.mp4','phone.direct.hls']:[]),...(sources?['player.sources.v1']:[]),...(transfers?['player.transfer.api.v2','player.transfer.confirm.v2']:[])]}};
       if (method === 'POST' && url.pathname === '/remote/v1/pair/request') return {status:202, body:pairing.request(body ?? {})};
       if (method === 'POST' && url.pathname === '/remote/v1/pair/collect') return {status:200, body:pairing.collect(body?.requestID)};
+      if (method === 'POST' && url.pathname === '/remote/v1/pair/cancel') return {status:200, body:pairing.cancelRequest(body??{})};
       const authorization = headers.authorization ?? headers.Authorization ?? '';
       if (!authorization.startsWith('Bearer ')) return {status:401, body:{error:'Pairing required'}};
       const token = authorization.slice(7);
@@ -51,6 +52,8 @@ export function createRemoteHandler({core, pairing, catalog, home, reviews, stat
       }
       return {status:404, body:{error:'Unsupported operation'}};
     } catch (error) {
+      const pairingMessages={PAIRING_CODE_EXPIRED:'This connection code expired. Create a new code on your Mac.',PAIRING_CODE_REJECTED:'The connection code was not accepted. Copy the complete current code from your Mac.',PAIRING_LIMITED:'Too many pairing attempts. Create a new code on your Mac.',PAIRING_BUSY:'Another iPhone is awaiting approval. Finish or cancel that request on your Mac.'};
+      if(pairingMessages[error.code])return{status:error.code==='PAIRING_LIMITED'?429:error.code==='PAIRING_BUSY'?409:error.code==='PAIRING_CODE_EXPIRED'?410:400,body:{code:error.code,error:pairingMessages[error.code]}};
       if(playbackMessages[error.code])return{status:error.code==='PLAYBACK_OUTPUT_CHANGED'?409:error.code==='PLAYBACK_AUDIO_LOCKED'?423:502,body:{code:error.code,error:playbackMessages[error.code]}};
       if(error.name==='CatalogRequestError')return{status:400,body:{error:error.message,code:'CATALOG_INVALID_REQUEST'}};
       if(catalogMessages[error.code])return{status:error.code==='WATCHLIST_SCOPE_CHANGED'?409:error.code==='CATALOG_NOT_FOUND'?404:error.code==='CATALOG_RATE_LIMITED'?429:error.code==='CATALOG_TIMEOUT'?504:502,body:{error:catalogMessages[error.code],code:error.code}};

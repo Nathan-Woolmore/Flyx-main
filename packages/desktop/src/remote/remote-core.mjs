@@ -28,8 +28,9 @@ export class RemoteCore {
   }
   cancelPairing() { this.#offer = undefined; }
   verifyOffer(secret) {
-    if (!this.#offer || ++this.#attempts > 5 || this.now() >= this.#offer.expires) throw new Error('Pairing unavailable');
-    if (typeof secret !== 'string' || secret.length > 512 || !equal(hash(secret), this.#offer.digest)) throw new Error('Pairing rejected');
+    if (!this.#offer || this.now() >= this.#offer.expires) throw Object.assign(new Error('Pairing unavailable'),{code:'PAIRING_CODE_EXPIRED'});
+    if (++this.#attempts > 5) throw Object.assign(new Error('Pairing unavailable'),{code:'PAIRING_LIMITED'});
+    if (typeof secret !== 'string' || secret.length > 512 || !equal(hash(secret), this.#offer.digest)) throw Object.assign(new Error('Pairing rejected'),{code:'PAIRING_CODE_REJECTED'});
   }
   approve({ secret, name, scopes = ['catalog.read', 'playback.control'] }) {
     this.verifyOffer(secret);

@@ -9,4 +9,4 @@ O=Flyx Remote TEST ONLY
 subjectAltName=DNS:synthetic.local,IP:127.0.0.1
 basicConstraints=CA:TRUE
 extendedKeyUsage=serverAuth
-keyUsage=critical,digitalSignature,keyEncipherment
+keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign

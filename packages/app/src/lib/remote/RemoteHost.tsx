@@ -17,6 +17,11 @@ export interface RemoteAPI {
  onRequest(callback:(request:any)=>void):()=>void;
  reply(reply:any):Promise<void>;
  beginPairing():Promise<{secret:string;expiresAt:number}>;
+ createConnectionCode():Promise<{code:string;expiresAt:number}>;
+ copyConnectionCode():Promise<unknown>;
+ cancelPairing():Promise<unknown>;
+ setupState():Promise<{available:boolean;host:string;endpoint:string;previousEndpoint?:string;replaceIdentity:boolean;needsSetup:boolean;status:string}>;
+ setupConnection():Promise<{cancelled?:boolean;changed:boolean;restartRequired?:boolean}>;
  approvalState():Promise<{pending:{id:string;name:string}|null;devices:{id:string;name:string;scopes?:string[]}[]}>;
  approve(id:string,downloads?:boolean):Promise<unknown>;
  transportState():Promise<{configured:boolean;listening:boolean;pin?:string;port?:number;endpoint?:string}>; startTransport():Promise<unknown>;stopTransport():Promise<unknown>; reject(id:string):Promise<unknown>; revoke(id:string):Promise<unknown>;

@@ -183,12 +183,11 @@ export default function SettingsPageClient() {
           {activeTab === "providers" && <ProviderSettings />}
           {activeTab === "playback" && <PlaybackSettings />}
           {activeTab === "subtitles" && <SubtitleSettingsPanel />}
-          {activeTab === "network" && <NetworkSettings />}
+          {activeTab === "network" && <div className={styles.settingsStack}><RemotePairingSettings /><NetworkSettings /></div>}
           {activeTab === "security" && (
             <div className={styles.settingsStack}>
               <SecuritySettings />
               <RemoteAccessSettings />
-              <RemotePairingSettings />
             </div>
           )}
           {activeTab === "environment" && <EnvSettings />}

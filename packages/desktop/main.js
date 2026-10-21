@@ -1022,13 +1022,43 @@ function handleTrusted(channel, handler) {
 let remoteBridgeCandidate;
 app.on("before-quit",()=>{void remoteBridgeCandidate?.dispose();});
 function registerIpc() {
+  let remoteSetupBusy = false;
+  const trustedSetup = handler => async event => {
+    if (!isTrustedCastSender(event, mainWindow, currentPort)) throw new Error("Untrusted remote sender");
+    return handler();
+  };
+  handleTrusted("flyx:remote-setup-state", trustedSetup(async () => {
+    const { inspectRemoteSetup } = await import("./src/remote/setup.mjs");
+    const { revision, ...state } = inspectRemoteSetup({ dataDir: DATA_DIR });
+    return state;
+  }));
+  handleTrusted("flyx:remote-setup-connection", trustedSetup(async () => {
+    if (remoteSetupBusy) throw new Error("Connection setup is already open");
+    remoteSetupBusy = true;
+    try {
+      const { prepareRemoteSetup } = await import("./src/remote/setup.mjs");
+      const result = await prepareRemoteSetup({ dataDir: DATA_DIR, confirm: async plan => {
+        const identity = plan.replaceIdentity
+          ? "Flyx will create a private TLS identity for this Mac. Phones using the previous certificate must connect with a new code and be approved again. Existing enrollment records are retained."
+          : "Flyx will update its listener to this Mac’s current home-network address. The existing certificate and phone enrollment stay unchanged.";
+        const answer = await dialog.showMessageBox(mainWindow, {
+          type: "warning", buttons: ["Cancel", "Set up and restart Flyx"], defaultId: 0, cancelId: 0,
+          message: "Set up the iPhone connection for this Mac?",
+          detail: `${identity}\n\nSecure address: ${plan.endpoint}\nHome-network address: ${plan.bindAddress}\n\nOnly paired devices can use the secure connection. Flyx will restart and interrupt any current streams. Your account, watch history and downloads stay unchanged. No Mac rename or system trust change is required.`,
+        });
+        return answer.response === 1;
+      }});
+      if (result.restartRequired) setTimeout(() => { app.relaunch(); app.quit(); }, 400);
+      return result;
+    } finally { remoteSetupBusy = false; }
+  }));
   // A private local opt-in survives ordinary app relaunches. No identity or pairing is generated here.
   Promise.all([import("./src/remote/electron-bridge.mjs"),import("./src/remote/configuration.mjs"),import("./src/remote/device-store.mjs")]).then(async ([{installRemoteBridge},{loadRemoteConfiguration},{createDeviceStore}]) => {
     let remoteConfig;
     try { remoteConfig=loadRemoteConfiguration({dataDir:DATA_DIR}); }
     catch { server.log("[remote] private configuration invalid or LAN address unavailable; remote remains off"); }
     remoteBridgeCandidate = installRemoteBridge({diagnostic:event=>server.log("[remote-prepare] "+JSON.stringify(event)),mediaOrigin:`http://127.0.0.1:${currentPort}`,audioLocked:isSilentCastTest,handleTrusted,
-      deviceStore:remoteConfig?createDeviceStore(path.join(DATA_DIR,"remote")):undefined,
+      deviceStore:remoteConfig?createDeviceStore(path.join(DATA_DIR,"remote")):undefined,copyText:value=>clipboard.writeText(value),
       tlsProvider:remoteConfig?.tlsProvider,persistEnabled:remoteConfig?.persistEnabled,
       transportHost:remoteConfig?.bindAddress,transportAllowedHosts:remoteConfig?[remoteConfig.host]:undefined,transportEndpoint:remoteConfig?.endpoint,
       isMainFrame: event => isTrustedCastSender(event, mainWindow, currentPort),

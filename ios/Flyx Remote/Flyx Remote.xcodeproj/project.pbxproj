@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F18100000000000000000002 /* ConnectionCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18100000000000000000001 /* ConnectionCode.swift */; };
 		A68000000000000000000103 /* StandaloneWeebCentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68000000000000000000003 /* StandaloneWeebCentral.swift */; };
 		A68000000000000000000102 /* WeebCentralPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68000000000000000000002 /* WeebCentralPage.swift */; };
 		A68000000000000000000101 /* StandaloneHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68000000000000000000001 /* StandaloneHome.swift */; };
@@ -73,6 +74,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		F18100000000000000000001 /* ConnectionCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionCode.swift; sourceTree = "<group>"; };
 		A68000000000000000000003 /* StandaloneWeebCentral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandaloneWeebCentral.swift; sourceTree = "<group>"; };
 		A68000000000000000000002 /* WeebCentralPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeebCentralPage.swift; sourceTree = "<group>"; };
 		A68000000000000000000001 /* StandaloneHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StandaloneHome.swift; sourceTree = "<group>"; };
@@ -187,6 +189,7 @@
 				25D00693193C54320624517E /* PinnedSessionDelegate.swift */,
 				9C4E422BEE2DFE0BFE101F27 /* PlaybackSession.swift */,
 				98A3DC68551F4D37C8B9D68A /* RememberedConnection.swift */,
+				F18100000000000000000001 /* ConnectionCode.swift */,
 				D95A67AA63C1DECF546DCF73 /* RemoteClient.swift */,
 				5A52FCA0ED608DF70EB7C3BC /* RemoteCompatibility.swift */,
 				93246043AE3ACC95DCABBA2A /* RemoteControls.swift */,
@@ -335,6 +338,7 @@
 				99BBF7D0A12408BFB5FD3048 /* PinnedSessionDelegate.swift in Sources */,
 				02279E6D6DCAECC32CE00B68 /* PlaybackSession.swift in Sources */,
 				B1F4FC4A4040BA37CB43B3BA /* RememberedConnection.swift in Sources */,
+				F18100000000000000000002 /* ConnectionCode.swift in Sources */,
 				7F7B4A1B341A6170736A216E /* RemoteClient.swift in Sources */,
 				30FB911F2746A8FBE2EC7F88 /* RemoteCompatibility.swift in Sources */,
 				18EEB8681CE4EDB9A208814D /* RemoteControls.swift in Sources */,
@@ -452,7 +456,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 77;
+				CURRENT_PROJECT_VERSION = 78;
 
 
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
@@ -519,7 +523,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 77;
+				CURRENT_PROJECT_VERSION = 78;
 
 
 				DEBUG_INFORMATION_FORMAT = dwarf;

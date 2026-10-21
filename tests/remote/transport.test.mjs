@@ -5,6 +5,8 @@ import https from 'node:https';
 import {readFile} from 'node:fs/promises';
 import {createSecureTransport,certificatePin} from '../../packages/desktop/src/remote/transport.mjs';
 import {installRemoteBridge} from '../../packages/desktop/src/remote/electron-bridge.mjs';
+import {nativeSwiftFixture} from './native-swift-fixture.mjs';
+import {fileURLToPath} from 'node:url';
 const {cert,key}=makeTestIdentity();
 function send(port,{path='/remote/v1/info',method='GET',body,token,pin=certificatePin(cert),extraHeaders={}}={}) {
  return new Promise((resolve,reject)=>{
@@ -34,11 +36,12 @@ test('fixture TLS transports local approval, catalog and acknowledged commands; 
  }finally {await transport.stop();bridge.dispose();}
 });
 
-test('native URLSession performs pinned TLS handshake without modifying trust stores',async()=>{
+test('native URLSession performs pinned TLS handshake without modifying trust stores',{skip:process.platform!=='darwin'},async()=>{
  const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
  const transport=createSecureTransport({key,cert,handle:async()=>({status:200,body:{protocolVersion:1}})});
- try{const {port}=await transport.start();const {stdout}=await promisify(execFile)('/tmp/FlyxRemoteNativeTLSFixtureTests',[`https://127.0.0.1:${port}/remote/v1/info`,certificatePin(cert)],{timeout:15000});assert.match(stdout,/2 native TLS socket checks passed/);}
- finally{await transport.stop();}
+ const fixture=await nativeSwiftFixture([fileURLToPath(new URL('../../ios/Flyx Remote/App/PinnedSessionDelegate.swift',import.meta.url)),fileURLToPath(new URL('./fixtures/NativeTLS81.swift',import.meta.url))]);
+ try{const {port}=await transport.start();const {stdout}=await promisify(execFile)(fixture.binary,[`https://127.0.0.1:${port}/remote/v1/info`,certificatePin(cert)],{timeout:15000});assert.match(stdout,/2 native TLS socket checks passed/);}
+ finally{await transport.stop();await fixture.cleanup();}
 });
 
 test('binary reader pages retain MIME and bytes over pinned HTTPS with header-only authentication',async()=>{

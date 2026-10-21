@@ -16,7 +16,8 @@ import { RemoteCore } from './remote-core.mjs';
 import { PairingApproval } from './pairing.mjs';
 import { catalogFailure, catalogMessages, createCatalog } from './catalog.mjs';
 import { createRemoteHandler } from './protocol.mjs';
-export function installRemoteBridge({diagnostic = ()=>{}, audioLocked = false, mediaOrigin, handleTrusted, send, isMainFrame, deviceStore, tlsProvider, persistEnabled = async()=>{}, transportEndpoint, transportHost = "127.0.0.1", transportAllowedHosts = ["127.0.0.1"], timeoutMS = 25000, makeID = randomUUID, makeToken = () => randomBytes(32).toString('base64url'), makeSecret = () => randomBytes(32).toString('hex'), now = Date.now}) {
+import {createConnectionCode} from './connection-code.mjs';
+export function installRemoteBridge({diagnostic = ()=>{}, audioLocked = false, mediaOrigin, handleTrusted, send, isMainFrame, deviceStore, tlsProvider, persistEnabled = async()=>{}, copyText, transportEndpoint, transportHost = "127.0.0.1", transportAllowedHosts = ["127.0.0.1"], timeoutMS = 25000, makeID = randomUUID, makeToken = () => randomBytes(32).toString('base64url'), makeSecret = () => randomBytes(32).toString('hex'), now = Date.now}) {
   const waiting = new Map();
   function request(action, payload) {
     if (waiting.size >= 16) return Promise.reject(new Error('Mac busy'));
@@ -43,9 +44,21 @@ export function installRemoteBridge({diagnostic = ()=>{}, audioLocked = false, m
     waiting.delete(reply.requestID); clearTimeout(pending.timer);
     reply.ok ? pending.resolve(reply.data) : pending.reject(playbackMessages[reply.errorCode]?playbackFailure(reply.errorCode):['catalog','watchlist','manga'].includes(pending.action)?catalogFailure(catalogMessages[reply.errorCode]?reply.errorCode:'CATALOG_UNAVAILABLE'):playbackFailure('MAC_OPERATION_FAILED'));
   });
-  local('flyx:remote-pair-begin',()=>pairing.begin());
+  let connectionOffer;
+  local('flyx:remote-pair-begin',()=>{connectionOffer=undefined;return pairing.begin();});
+  local('flyx:remote-connection-code',()=>{
+    if(!transportInfo)throw new Error('Enable the secure iPhone connection first');
+    const offer=pairing.begin();
+    connectionOffer={code:createConnectionCode({...offer,endpoint:transportEndpoint,pin:transportInfo.pin},now()),expiresAt:offer.expiresAt};
+    return connectionOffer;
+  });
+  local('flyx:remote-copy-code',()=>{
+    if(!connectionOffer||now()>=connectionOffer.expiresAt||!transportInfo||!copyText)throw new Error('Create a new connection code');
+    copyText(connectionOffer.code);return{ok:true};
+  });
+  local('flyx:remote-pair-cancel',()=>{connectionOffer=undefined;pairing.cancel();return{ok:true};});
   local('flyx:remote-approval-state',()=>pairing.snapshot());
-  local('flyx:remote-approve',payload=>pairing.approve(payload.id,['catalog.read','playback.control',...(payload.downloads===true?['downloads.read','downloads.write']:[])]));
+  local('flyx:remote-approve',payload=>{const value=pairing.approve(payload.id,['catalog.read','playback.control',...(payload.downloads===true?['downloads.read','downloads.write']:[])]);connectionOffer=undefined;return value;});
   local('flyx:remote-reject',payload=>pairing.reject(payload.id));
   local('flyx:remote-permissions',payload=>core.updateScopes(payload.id,['catalog.read','playback.control',...(payload.watchlist===true?['watchlist.write']:[]),...(payload.downloads===true?['downloads.read','downloads.write']:[])]));
   local('flyx:remote-revoke',payload=>({ok:core.revoke(payload.id)}));
