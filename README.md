@@ -4,6 +4,12 @@ Flyx is a self-hosted app for browsing movies, TV shows, anime, manga, live TV, 
 
 The desktop app includes its own server. The CLI (command-line interface) runs the server from a terminal so you can use Flyx in a browser. Both need an internet connection for online catalogs and streams; source availability varies.
 
+## This fork: Mac bridge and iOS companion
+
+This branch includes the native Mac fixes and **Flyx Remote** in the separate [`ios/Flyx Remote`](ios/Flyx%20Remote/README.md) folder. The Mac package paths stay unchanged. See [architecture, secure pairing and distribution status](docs/flyx-remote.md) and [remote tests](tests/remote/README.md).
+
+These additions are currently clone-and-build source. This fork has no release installer containing them; the upstream downloads below are separate builds. The iOS project requires Xcode and your own device signing. No personal credentials or signed app binaries are included.
+
 ## Choose your setup
 
 | What you want                                      | Start here                                      | Requirements                                                            |
@@ -514,3 +520,9 @@ Flyx is an npm-workspace/Turborepo monorepo. `packages/app` contains the Next.js
 This README describes setup in the current checkout. Some older supporting guides describe earlier UI/setup behavior; use the steps here for installation.
 
 Self-hosting gives you control over the local instance and its stored data. Flyx still connects to TMDB, streaming providers, and upstream services; self-hosting does not make those requests anonymous.
+
+## iPhone companion source
+
+The iPhone companion and Mac application share this repository. Open `ios/Flyx Remote/Flyx Remote.xcodeproj` for iOS development. Local signing stays in the ignored `Config/LocalSigning.xcconfig` inside that iOS project; no second signing source checkout is required.
+
+Run `python3 scripts/build-ios.py` for a signed device build or add `--simulator` for the isolated preview. Products, logs, package caches and recoverable archives live outside source in the sibling `Flyx Artifacts` directory. See the [iPhone project guide](ios/Flyx%20Remote/README.md).

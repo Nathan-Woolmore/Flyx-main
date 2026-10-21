@@ -29,6 +29,10 @@ export interface ProgressEntry extends WatchProgress {
   /** Set once the viewer reached the end (or COMPLETED_PCT). */
   completed?: boolean;
   updatedAt?: number;
+  progressSessionID?: string;
+  progressSessionStartedAt?: number;
+  progressSequence?: number;
+  completionEvidence?: "position" | "ended" | "manual";
 }
 
 export interface ProgressStorage {
@@ -37,6 +41,8 @@ export interface ProgressStorage {
 }
 
 export interface ProgressIdentity {
+  /** Keep MAL titles distinct from numerically equal TMDB IDs. */
+  malId?: number;
   contentId: string;
   contentType: "movie" | "tv";
   seasonNumber?: number;
@@ -68,7 +74,7 @@ export function writeProgress(storage: ProgressStorage | null | undefined, entri
 
 export function sameItem(a: ProgressIdentity, b: ProgressIdentity): boolean {
   return (
-    a.contentId === b.contentId &&
+    (a.malId || b.malId ? Boolean(a.malId) && a.malId === b.malId : a.contentId === b.contentId) &&
     a.contentType === b.contentType &&
     (a.seasonNumber ?? null) === (b.seasonNumber ?? null) &&
     (a.episodeNumber ?? null) === (b.episodeNumber ?? null)
@@ -90,6 +96,11 @@ export interface UpsertInput extends ProgressIdentity {
   /** Force "finished" regardless of position (the `ended` event). */
   completed?: boolean;
   now?: number;
+  explicitStartOver?: boolean;
+  progressSessionID?: string;
+  progressSessionStartedAt?: number;
+  progressSequence?: number;
+  completionEvidence?: "position" | "ended" | "manual";
 }
 
 /**
@@ -97,14 +108,23 @@ export interface UpsertInput extends ProgressIdentity {
  * null when the input is not worth recording yet.
  */
 export function upsertEntry(entries: ProgressEntry[], input: UpsertInput): ProgressEntry[] | null {
+  if(input.progressSessionID){
+    if(!Number.isSafeInteger(input.progressSessionStartedAt)||!Number.isSafeInteger(input.progressSequence)||(input.progressSequence??0)<1)return null;
+    const sameTitle=(e:ProgressEntry)=>(input.malId ? e.malId===input.malId : !e.malId&&e.contentId===input.contentId)&&e.contentType===input.contentType;
+    const newer=entries.find(e=>sameTitle(e)&&(e.progressSessionStartedAt??0)>(input.progressSessionStartedAt??0));
+    if(newer)return null;
+    const previous=entries.find(e=>sameItem(e,input));
+    if(previous?.progressSessionID===input.progressSessionID&&(previous.progressSequence??0)>=(input.progressSequence??0))return null;
+    if(previous&&(previous.updatedAt??previous.lastWatchedAt??0)>(input.now??Date.now())&&previous.progressSessionID!==input.progressSessionID)return null;
+  }
   const duration = Number.isFinite(input.duration) ? input.duration : 0;
   const currentTime = Math.max(0, Number.isFinite(input.currentTime) ? input.currentTime : 0);
-  if (!input.completed && (currentTime < MIN_TRACK_SECONDS || duration <= 0)) return null;
+  if (!input.completed && ((currentTime < MIN_TRACK_SECONDS && !input.explicitStartOver) || duration <= 0)) return null;
 
   const pct = input.completed ? 100 : completionPct(currentTime, duration);
-  const completed = Boolean(input.completed) || pct >= COMPLETED_PCT;
-  const now = input.now ?? Date.now();
   const existing = entries.find((e) => sameItem(e, input));
+  const completed = (existing?.completed===true && !!input.progressSessionID && existing.progressSessionID===input.progressSessionID) || (input.completionEvidence ? input.completed===true && ["ended","manual"].includes(input.completionEvidence) : Boolean(input.completed) || pct >= COMPLETED_PCT);
+  const now = input.now ?? Date.now();
 
   const next: ProgressEntry = {
     ...(existing ?? {}),
@@ -122,6 +142,10 @@ export function upsertEntry(entries: ProgressEntry[], input: UpsertInput): Progr
     posterPath: input.posterPath ?? existing?.posterPath,
     backdropPath: input.backdropPath ?? existing?.backdropPath,
     malId: input.malId ?? existing?.malId,
+    progressSessionID:input.progressSessionID,
+    progressSessionStartedAt:input.progressSessionStartedAt,
+    progressSequence:input.progressSequence,
+    completionEvidence:input.completionEvidence,
   };
 
   const rest = entries.filter((e) => !sameItem(e, input));
@@ -147,10 +171,18 @@ export function latestForContent(
   return matches.sort((a, b) => (b.lastWatchedAt ?? 0) - (a.lastWatchedAt ?? 0))[0]!;
 }
 
+export function isProgressFinished(entry:ProgressEntry):boolean{return entry.completed===true || (entry.completionEvidence===undefined && entry.completionPercentage>=COMPLETED_PCT);}
+
+/** New writers use a canonical Mac timestamp, not a phone-provided clock. */
+export function beginProgressSession(identity:ProgressIdentity){
+  const latest=getAllWatchProgress().filter(e=>(identity.malId ? e.malId===identity.malId : !e.malId&&e.contentId===identity.contentId)&&e.contentType===identity.contentType).reduce((max,e)=>Math.max(max,e.progressSessionStartedAt??0),0);
+  return{progressSessionID:crypto.randomUUID(),progressSessionStartedAt:Math.max(Date.now(),latest+1)};
+}
+
 /** Resume position in seconds for an entry, or 0 when it should start over. */
 export function resumeSeconds(entry: ProgressEntry | null | undefined): number {
   if (!entry || entry.completed) return 0;
-  if (entry.completionPercentage >= COMPLETED_PCT) return 0;
+  if (isProgressFinished(entry)) return 0;
   return entry.currentTime > MIN_TRACK_SECONDS ? Math.floor(entry.currentTime) : 0;
 }
 
@@ -167,7 +199,7 @@ export function formatClock(seconds: number): string {
 
 /** "23 min left" / "1 h 02 min left" / "Finished" */
 export function formatRemaining(entry: ProgressEntry): string {
-  if (entry.completed || entry.completionPercentage >= COMPLETED_PCT) return "Finished";
+  if (isProgressFinished(entry)) return "Finished";
   const left = Math.max(0, (entry.duration || 0) - (entry.currentTime || 0));
   const mins = Math.round(left / 60);
   if (left < 60) return "Less than a minute left";
@@ -193,8 +225,8 @@ export function resumeHref(entry: ProgressEntry, opts: { title?: string } = {}):
   if (entry.malId) {
     q.set("malId", String(entry.malId));
     if (entry.contentId && entry.contentId !== String(entry.malId)) q.set("tmdbId", entry.contentId);
-    q.set("mediaType", "tv");
-    q.set("episode", String(entry.episodeNumber ?? 1));
+    q.set("mediaType", entry.contentType);
+    if (entry.contentType === "tv") q.set("episode", String(entry.episodeNumber ?? 1));
   } else {
     q.set("tmdbId", entry.contentId);
     q.set("mediaType", entry.contentType);

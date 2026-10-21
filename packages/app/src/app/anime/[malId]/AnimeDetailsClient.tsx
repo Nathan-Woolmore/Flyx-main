@@ -128,9 +128,9 @@ function AnimeDetailsClientInner({ malId }: { malId: number }) {
     (epNum: number) => {
       const q = new URLSearchParams({
         malId: String(malId),
-        mediaType: "anime",
+        mediaType: isMovie ? "movie" : "tv",
       });
-      if (!isMovie && epNum) q.set("episode", String(epNum));
+      if (!isMovie && epNum) { q.set("season", "1"); q.set("episode", String(epNum)); }
       router.push(`/watch?${q.toString()}`);
     },
     [isMovie, malId, router],
@@ -193,7 +193,7 @@ function AnimeDetailsClientInner({ malId }: { malId: number }) {
           </p>
           <button
             type="button"
-            onClick={() => router.push("/anime")}
+            onClick={() => router.back()}
             className="btn-primary"
           >
             Back to Browse
@@ -239,7 +239,7 @@ function AnimeDetailsClientInner({ malId }: { malId: number }) {
         trailerId={trailerId}
         onTrailer={() => setTrailerOpen(true)}
         onWatch={() => playEp(1)}
-        onBack={() => router.push("/anime")}
+        onBack={() => router.back()}
         inList={inList}
         onToggleList={toggleWatchlist}
         downloadItem={isMovie ? animeDownload() : animeDownload(1)}
@@ -397,7 +397,7 @@ function HeroBanner({
       <div className="content-container anime-detail-hero-body">
         <button type="button" onClick={onBack} className="anime-detail-back">
           <ArrowLeft className="h-3.5 w-3.5" />
-          Anime
+          Back
         </button>
 
         <div className="anime-detail-hero-row">

@@ -9,9 +9,14 @@ export const metadata = {
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; type?: string; genre?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
+  const initialSearch = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    for (const entry of Array.isArray(value) ? value : value === undefined ? [] : [value])
+      initialSearch.append(key, entry);
+  }
   return (
     <Suspense
       fallback={
@@ -20,11 +25,7 @@ export default async function SearchPage({
         </div>
       }
     >
-      <SearchPageClient
-        initialQuery={params.q ?? ""}
-        initialContentType={params.type ?? "movie"}
-        initialGenre={params.genre ?? ""}
-      />
+      <SearchPageClient initialSearch={initialSearch.toString()} />
     </Suspense>
   );
 }

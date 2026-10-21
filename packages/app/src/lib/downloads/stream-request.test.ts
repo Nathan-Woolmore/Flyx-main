@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  parseDownloadItem,
-  downloadContentDisposition,
-  streamFilename,
-} from "./stream-request";
+import { parseDownloadItem, downloadContentDisposition, streamFilename } from "./stream-request";
 
 function qs(entries: Record<string, string>): URLSearchParams {
   return new URLSearchParams(entries);
@@ -11,7 +7,9 @@ function qs(entries: Record<string, string>): URLSearchParams {
 
 describe("parseDownloadItem", () => {
   it("parses a movie video item", () => {
-    expect(parseDownloadItem(qs({ tmdbId: "550", mediaType: "movie", title: "Fight Club" }))).toEqual({
+    expect(
+      parseDownloadItem(qs({ tmdbId: "550", mediaType: "movie", title: "Fight Club" })),
+    ).toEqual({
       kind: "video",
       tmdbId: 550,
       mediaType: "movie",
@@ -26,7 +24,9 @@ describe("parseDownloadItem", () => {
 
   it("parses a tv episode with quality", () => {
     expect(
-      parseDownloadItem(qs({ tmdbId: "1", mediaType: "tv", season: "2", episode: "3", quality: "1080p" })),
+      parseDownloadItem(
+        qs({ tmdbId: "1", mediaType: "tv", season: "2", episode: "3", quality: "1080p" }),
+      ),
     ).toMatchObject({
       kind: "video",
       tmdbId: 1,
@@ -45,6 +45,19 @@ describe("parseDownloadItem", () => {
     });
   });
 
+  it("preserves season zero across the browser stream URL and parser", async () => {
+    const { buildStreamUrl } = await import("./client");
+    const input = {
+      kind: "video" as const,
+      tmdbId: 202,
+      mediaType: "tv" as const,
+      season: 0,
+      episode: 2,
+    };
+    expect(
+      parseDownloadItem(new URL(buildStreamUrl(input), "http://flyx.test").searchParams),
+    ).toMatchObject({ season: 0, episode: 2 });
+  });
   it("parses anime episodes (tv + season 1 + malId)", () => {
     expect(
       parseDownloadItem(
@@ -67,9 +80,9 @@ describe("parseDownloadItem", () => {
     expect(
       parseDownloadItem(qs({ tmdbId: "0", mediaType: "movie", malId: "123", language: "sub" })),
     ).toMatchObject({ language: "sub" });
-    expect(
-      parseDownloadItem(qs({ tmdbId: "0", mediaType: "movie", malId: "123" })),
-    ).toMatchObject({ language: undefined });
+    expect(parseDownloadItem(qs({ tmdbId: "0", mediaType: "movie", malId: "123" }))).toMatchObject({
+      language: undefined,
+    });
   });
 
   it("parses a manga item", () => {
@@ -87,11 +100,15 @@ describe("parseDownloadItem", () => {
   });
 
   it("rejects tv without season/episode", () => {
-    expect(() => parseDownloadItem(qs({ tmdbId: "1", mediaType: "tv" }))).toThrow(/season\/episode/);
+    expect(() => parseDownloadItem(qs({ tmdbId: "1", mediaType: "tv" }))).toThrow(
+      /season\/episode/,
+    );
   });
 
   it("rejects manga without a chapter", () => {
-    expect(() => parseDownloadItem(qs({ kind: "manga", mangaId: "abc" }))).toThrow(/mangaId\/chapter/);
+    expect(() => parseDownloadItem(qs({ kind: "manga", mangaId: "abc" }))).toThrow(
+      /mangaId\/chapter/,
+    );
   });
 });
 
@@ -110,9 +127,9 @@ describe("streamFilename", () => {
         title: "Show",
       }),
     ).toBe("Show - S02E03.mp4");
-    expect(
-      streamFilename({ kind: "manga", mangaId: "abc", chapter: 7, title: "Manga" }),
-    ).toBe("Manga - Chapter 7.cbz");
+    expect(streamFilename({ kind: "manga", mangaId: "abc", chapter: 7, title: "Manga" })).toBe(
+      "Manga - Chapter 7.cbz",
+    );
   });
 });
 

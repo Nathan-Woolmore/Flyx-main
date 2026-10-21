@@ -2,7 +2,7 @@
   "name": "flyx",
   "version": "3.2.10",
   "private": true,
-  "description": "Flyx 3.0 — Privacy-first streaming platform",
+  "description": "Flyx 3.0 \u2014 Privacy-first streaming platform",
   "workspaces": [
     "packages/app",
     "packages/admin",
@@ -51,7 +51,8 @@
     "desktop:package": "npm run desktop:build && npm run dist --workspace=@flyx/desktop",
     "desktop:publish": "npm run desktop:build && npm run dist:publish --workspace=@flyx/desktop",
     "desktop:icons": "node scripts/gen-desktop-icon.mjs",
-    "ffmpeg:fetch": "node scripts/fetch-ffmpeg.mjs"
+    "ffmpeg:fetch": "node scripts/fetch-ffmpeg.mjs",
+    "test:remote": "node --test tests/remote/*.test.mjs"
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "^16.3.6",

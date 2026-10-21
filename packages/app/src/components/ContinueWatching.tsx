@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAnalytics } from "@/components/analytics/AnalyticsProvider";
 import { SYNC_DATA_CHANGED_EVENT, useSyncContext } from "@/lib/sync";
 import type { WatchProgress } from "@/lib/services/user-tracking";
-import { resumeHref, type ProgressEntry } from "@/lib/watch-progress";
+import { resumeHref, isProgressFinished, type ProgressEntry } from "@/lib/watch-progress";
 
 interface ContentMetadata {
   id: string;
@@ -95,7 +95,7 @@ export default function ContinueWatching() {
       setLoading(true);
       try {
         const progressItems = getAllWatchProgress()
-          .filter((p) => p.completionPercentage > 2 && p.completionPercentage < 95)
+          .filter((p) => p.completionPercentage > 2 && !isProgressFinished(p))
           .slice(0, 12);
 
         const withMeta: ContinueWatchingItem[] = [];

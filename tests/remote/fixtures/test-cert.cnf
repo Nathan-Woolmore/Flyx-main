@@ -1,0 +1,12 @@
+[req]
+distinguished_name=dn
+x509_extensions=ext
+prompt=no
+[dn]
+CN=synthetic.local
+O=Flyx Remote TEST ONLY
+[ext]
+subjectAltName=DNS:synthetic.local,IP:127.0.0.1
+basicConstraints=CA:TRUE
+extendedKeyUsage=serverAuth
+keyUsage=critical,digitalSignature,keyEncipherment

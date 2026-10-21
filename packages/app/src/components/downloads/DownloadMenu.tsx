@@ -33,7 +33,7 @@ function itemDescription(item: DownloadItemInput | undefined, count: number): st
   }
   if (count > 1) return `${count} episodes`;
   if (item.malId && item.episode) return `Episode ${item.episode}`;
-  if (item.mediaType === "tv" && item.season && item.episode) {
+  if (item.mediaType === "tv" && item.season != null && item.episode != null) {
     return `Season ${item.season}, Episode ${item.episode}`;
   }
   return "Movie";
@@ -87,7 +87,7 @@ export default function DownloadMenu({
       const query = new URLSearchParams();
       query.set("tmdbId", String(video.tmdbId));
       query.set("mediaType", video.mediaType);
-      if (video.season) query.set("season", String(video.season));
+      if (video.season != null) query.set("season", String(video.season));
       if (video.episode) query.set("episode", String(video.episode));
       if (video.malId) query.set("malId", String(video.malId));
       if (video.title) query.set("title", video.title);

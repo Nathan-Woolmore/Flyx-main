@@ -206,7 +206,7 @@ function HeroSection({ items, onOpen }: { items: MangaCard[]; onOpen: (item: Man
   if (!current) return null;
 
   return (
-    <section className="relative h-[48vh] min-h-[300px] max-h-[480px] overflow-hidden">
+    <section className="manga-featured-hero" aria-label="Featured manga">
       <motion.div
         key={current.id}
         initial={{ opacity: 0, scale: 1.04 }}
@@ -227,15 +227,15 @@ function HeroSection({ items, onOpen }: { items: MangaCard[]; onOpen: (item: Man
         <div className="hero-vignette" />
       </motion.div>
 
-      <div className="content-container relative flex h-full items-end pb-8 md:pb-10">
+      <div className="content-container manga-featured-body">
         <motion.div
           key={`copy-${current.id}`}
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.08 }}
-          className="max-w-2xl"
+          className="manga-featured-copy"
         >
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="manga-featured-meta">
             <span className="badge">Featured</span>
             {current.chapterCount != null && current.chapterCount > 0 && (
               <span className="meta-chip !text-[10px]">
@@ -254,30 +254,28 @@ function HeroSection({ items, onOpen }: { items: MangaCard[]; onOpen: (item: Man
               </span>
             )}
           </div>
-          <h1 className="hero-title line-clamp-2 text-3xl md:text-5xl lg:text-[3.25rem]">
+          <h1 className="hero-title manga-featured-title" title={current.title}>
             {current.title}
           </h1>
           {current.altTitle && (
-            <p className="mt-1.5 text-sm font-medium text-white/45">{current.altTitle}</p>
+            <p className="manga-featured-description">{current.altTitle}</p>
           )}
-          <div className="mt-5 flex flex-wrap gap-2.5">
+          <div className="manga-featured-actions">
             <button type="button" onClick={() => onOpen(current)} className="btn-primary !px-5 !py-2.5 text-sm">
               <BookOpenIcon className="h-4 w-4" /> View Details
             </button>
           </div>
           {items.length > 1 && (
-            <div className="mt-5 flex gap-1.5">
+            <div className="manga-featured-pagination" role="group" aria-label="Featured manga slides">
               {items.map((_, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => { setIdx(i); if (timer.current) clearInterval(timer.current); }}
-                  className={`h-1 rounded-full transition-all duration-300 ${
-                    i === idx ? "w-6 bg-[#00e5bf]" : "w-3 bg-white/20 hover:bg-white/40"
-                  }`}
-                  style={i === idx ? { boxShadow: "0 0 12px rgba(0,229,191,0.5)" } : undefined}
+                  className={`manga-featured-dot${i === idx ? " is-active" : ""}`}
+                  aria-pressed={i === idx}
                   aria-label={`Show featured ${i + 1}`}
-                />
+                ><span aria-hidden="true" /></button>
               ))}
             </div>
           )}

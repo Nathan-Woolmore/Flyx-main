@@ -3,11 +3,14 @@ import {
   type ExternalPlayerMode,
 } from "@/lib/external-player";
 
+import { normalizeStartupQualityPreference, type StartupQualityPreference } from "@/components/player/source-quality";
+
 export interface PlayerPreferences {
   autoPlayNextEpisode: boolean;
   autoPlayCountdown: number;
   showNextEpisodeBeforeEnd: number;
-  preferredQuality: string;
+  /** Initial source/variant choice; manual per-video choices take priority. */
+  preferredQuality: StartupQualityPreference;
   playbackSpeed: number;
   /** Publish now-playing metadata (Windows SMTC / window title) for VRChat companions. */
   showNowPlaying: boolean;
@@ -25,7 +28,7 @@ const DEFAULTS: PlayerPreferences = {
   autoPlayNextEpisode: true,
   autoPlayCountdown: 10,
   showNextEpisodeBeforeEnd: 60,
-  preferredQuality: "auto",
+  preferredQuality: "highest",
   playbackSpeed: 1,
   showNowPlaying: true,
   externalPlayer: "manual",
@@ -38,6 +41,9 @@ export function getPlayerPreferences(): PlayerPreferences {
     if (!raw) return { ...DEFAULTS };
     const merged = { ...DEFAULTS, ...JSON.parse(raw) } as PlayerPreferences;
     merged.externalPlayer = normalizeExternalPlayerMode(merged.externalPlayer);
+    // Legacy auto/missing quality used no startup preference. Resolve it to
+    // the new default without rewriting storage or any unrelated setting.
+    merged.preferredQuality = normalizeStartupQualityPreference(merged.preferredQuality);
     return merged;
   } catch {
     return { ...DEFAULTS };

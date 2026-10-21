@@ -64,3 +64,28 @@ probe*.mjs
 # Local-only notes (announcements, drafts)
 local/
 packages/app/e2e/.auth-state.json
+
+# The local media API is application source.
+!packages/app/src/app/api/stream/local/
+!packages/app/src/app/api/stream/local/route.ts
+
+# Apple projects: keep portable source and shared schemes only.
+**/xcuserdata/
+*.xcuserstate
+DerivedData/
+.build/
+*.ipa
+*.dSYM/
+*.xcarchive/
+*.mobileprovision
+*.p12
+*.p8
+*.key
+# Local identities and verification output never belong in source control.
+.flyx-enrollment.json
+connection-verification.json
+phone-playback-fixture.json
+**/Local.xcconfig
+/ios/**/Verification/
+/ios/Flyx Remote/Config/LocalSigning.xcconfig
+!/scripts/build-ios.py

@@ -6,6 +6,8 @@
  * Handles response parsing, error classification, and caching headers.
  */
 
+import type { SearchFilters } from '@/lib/search/state';
+
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 
 class TmdbApi {
@@ -24,6 +26,7 @@ class TmdbApi {
   private async fetch<T>(
     path: string,
     params: Record<string, string | number> = {},
+    signal?: AbortSignal,
   ): Promise<T> {
     // Resolve configuration at request time. Next.js evaluates route modules while
     // collecting build data, when runtime-only secrets are intentionally absent.
@@ -48,6 +51,7 @@ class TmdbApi {
 
     const resp = await fetch(url.toString(), {
       headers,
+      signal,
       next: { revalidate: 3600 },
     });
 
@@ -104,6 +108,8 @@ class TmdbApi {
   /**
    * Get season details for a TV show.
    */
+  async getReviews(id:string,mediaType:'movie'|'tv',page=1):Promise<any>{return this.fetch(`/${mediaType}/${id}/reviews`,{page},AbortSignal.timeout(12000));}
+
   async getSeasonDetails(tvId: string, seasonNumber: number): Promise<any> {
     return this.fetch(`/tv/${tvId}/season/${seasonNumber}`);
   }
@@ -148,6 +154,28 @@ class TmdbApi {
       ...item,
       mediaType: contentType,
     }));
+  }
+
+  /** Search a single type or discover with catalog-wide filters and ordering. */
+  async getCatalogPage(options: SearchFilters & { query: string; genreIds: number[]; page: number }, signal?: AbortSignal) {
+    const { contentType, query, genreIds, yearRange, minRating, sortBy, page } = options;
+    const params: Record<string, string | number> = { page, include_adult: 'false' };
+    if (query) {
+      params.query = query;
+    } else {
+      if (genreIds.length) params.with_genres = genreIds.join('|');
+      params['vote_average.gte'] = minRating;
+      params['vote_count.gte'] = options.minVotes ?? (sortBy === 'rating' ? 10:0);
+      const date = contentType === 'tv' ? 'first_air_date' : 'primary_release_date';
+      params[`${date}.gte`] = `${yearRange[0]}-01-01`;
+      params[`${date}.lte`] = `${yearRange[1]}-12-31`;
+      params.sort_by = sortBy === 'rating' ? 'vote_average.desc' : sortBy === 'release_date' ? `${date}.desc` : 'popularity.desc';
+    }
+    const data: any = await this.fetch(`/${query ? 'search' : 'discover'}/${contentType}`, params, signal);
+    return {
+      items: (data.results || []).map((item: any) => ({ ...item, mediaType: contentType })),
+      totalPages: Number(data.total_pages) || 0,
+    };
   }
 
   /**

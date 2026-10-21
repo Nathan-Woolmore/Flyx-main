@@ -34,20 +34,20 @@ export function parseDownloadItem(searchParams: URLSearchParams): DownloadItemIn
 
   // Default to video.
   const tmdbId = Number(searchParams.get("tmdbId"));
-  const malId = searchParams.get("malId")
-    ? Number(searchParams.get("malId"))
-    : undefined;
+  const malId = searchParams.get("malId") ? Number(searchParams.get("malId")) : undefined;
   if (!Number.isFinite(tmdbId)) throw new Error("missing a valid tmdbId");
   if (tmdbId <= 0 && !malId) throw new Error("missing a valid tmdbId");
 
   const mediaType = searchParams.get("mediaType") === "tv" ? "tv" : "movie";
-  const season = searchParams.get("season")
-    ? Number(searchParams.get("season"))
-    : undefined;
-  const episode = searchParams.get("episode")
-    ? Number(searchParams.get("episode"))
-    : undefined;
-  if (mediaType === "tv" && !season && !episode) {
+  const season = searchParams.get("season") ? Number(searchParams.get("season")) : undefined;
+  const episode = searchParams.get("episode") ? Number(searchParams.get("episode")) : undefined;
+  if (
+    mediaType === "tv" &&
+    (!Number.isSafeInteger(season) ||
+      season! < 0 ||
+      !Number.isSafeInteger(episode) ||
+      episode! <= 0)
+  ) {
     throw new Error("missing season/episode");
   }
 

@@ -74,12 +74,12 @@ export async function GET(request: NextRequest) {
       try {
         // Find first non-special season (season 0 is usually specials)
         const firstSeason =
-          details.seasons.find((s: any) => s.seasonNumber > 0) ||
+          details.seasons.find((s: any) => (s.seasonNumber ?? s.season_number) > 0) ||
           details.seasons[0];
         if (firstSeason) {
           prefetchedSeason = await tmdbApi.getSeasonDetails(
             id,
-            firstSeason.seasonNumber,
+            firstSeason.seasonNumber ?? firstSeason.season_number,
           );
         }
       } catch (error) {
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
       ...details,
       seasons: prefetchedSeason
         ? details.seasons?.map((season: any) =>
-            season.seasonNumber === prefetchedSeason.seasonNumber
+            (season.seasonNumber ?? season.season_number) === (prefetchedSeason.seasonNumber ?? prefetchedSeason.season_number)
               ? prefetchedSeason
               : season,
           )

@@ -100,6 +100,13 @@ describe("upsertEntry", () => {
 });
 
 describe("lookups", () => {
+  it("keeps MAL titles and equal TMDB IDs distinct while accepting older MAL records with a different contentId", () => {
+    const anime = movie({ contentId: "0", malId: 20, contentType: "tv", seasonNumber: 1, episodeNumber: 1 });
+    const list = [anime, movie({ contentId: "20", contentType: "tv", seasonNumber: 1, episodeNumber: 1 })];
+    expect(findEntry(list, { contentId: "20", malId: 20, contentType: "tv", seasonNumber: 1, episodeNumber: 1 })).toBe(anime);
+    expect(findEntry(list, { contentId: "20", malId: 21, contentType: "tv", seasonNumber: 1, episodeNumber: 1 })).toBeNull();
+    expect(findEntry(list, { contentId: "20", contentType: "tv", seasonNumber: 1, episodeNumber: 1 })).toBe(list[1]);
+  });
   it("findEntry distinguishes episodes", () => {
     const list = [
       movie({ contentId: "9", contentType: "tv", seasonNumber: 1, episodeNumber: 1 }),
@@ -160,3 +167,25 @@ describe("labels", () => {
     expect(completionPct(50, 200)).toBe(25);
   });
 });
+
+
+it("keeps a MAL movie a movie in normal resume links so it can match its completed local download", () => {
+  const url = new URL(resumeHref(movie({ contentId: "30", malId: 30, contentType: "movie" })), "http://flyx.test");
+  expect(url.searchParams.get("mediaType")).toBe("movie");
+  expect(url.searchParams.get("malId")).toBe("30");
+  expect(url.searchParams.has("episode")).toBe(false);
+});
+
+describe("qualified cross-device sessions",()=>{
+ const input=(over:Record<string,unknown>={})=>({contentId:"77",contentType:"tv" as const,seasonNumber:0,episodeNumber:9,currentTime:33.25,duration:100,now:1000,progressSessionID:"phone-A",progressSessionStartedAt:900,progressSequence:1,completionEvidence:"position" as const,...over});
+ it("preserves specials and exact position across durable storage/relaunch",()=>{const s=memStorage();const next=upsertEntry([],input())!;writeProgress(s,next);expect(readProgress(s)[0]).toMatchObject({seasonNumber:0,episodeNumber:9,currentTime:33.25,progressSessionID:"phone-A"});expect(resumeSeconds(readProgress(s)[0])).toBe(33);});
+ it("rejects an older episode session after a newer device session",()=>{const newer=upsertEntry([],input({episodeNumber:10,progressSessionID:"Mac-B",progressSessionStartedAt:1100,now:1200}))!;expect(upsertEntry(newer,input({progressSequence:99,now:1300}))).toBeNull();});
+ it("rejects reordered and duplicate events from the same session",()=>{const entries=upsertEntry([],input({progressSequence:5}))!;expect(upsertEntry(entries,input({progressSequence:4,currentTime:20}))).toBeNull();expect(upsertEntry(entries,input({progressSequence:5}))).toBeNull();});
+ it("seeking to the end does not complete an episode or hide its resume",()=>{const entries=upsertEntry([],input({currentTime:98}))!;expect(entries[0].completed).toBe(false);expect(resumeSeconds(entries[0])).toBe(98);});
+ it("an actual ended event records completion",()=>{const entries=upsertEntry([],input({currentTime:100,completed:true,completionEvidence:"ended"}))!;expect(entries[0].completed).toBe(true);expect(resumeSeconds(entries[0])).toBe(0);});
+ it("keeps numerically equal MAL anime and TMDB shows distinct",()=>{const anime=upsertEntry([],input({malId:77,seasonNumber:1,episodeNumber:9}))!;const tmdb=upsertEntry(anime,input({progressSessionID:"tmdb-B",progressSessionStartedAt:950}))!;expect(tmdb).toHaveLength(2);expect(tmdb.find(e=>e.malId===77)?.seasonNumber).toBe(1);});
+});
+
+it("explicit start-over persists zero without marking completion",()=>{const entries=upsertEntry([],{contentId:"1",contentType:"movie",currentTime:0,duration:100,explicitStartOver:true,progressSessionID:"reset-fixture",progressSessionStartedAt:1000,progressSequence:1,completionEvidence:"position",now:1000})!;expect(entries[0]).toMatchObject({currentTime:0,completed:false});});
+
+it("late pause/cleanup saves cannot clear completion in the same qualified session",()=>{const base={contentId:"1",contentType:"movie" as const,currentTime:100,duration:100,progressSessionID:"ending-fixture",progressSessionStartedAt:1000,progressSequence:1,completionEvidence:"ended" as const,completed:true,now:1000};const ended=upsertEntry([],base)!;const paused=upsertEntry(ended,{...base,progressSequence:2,completionEvidence:"position",completed:false,now:1001})!;expect(paused[0].completed).toBe(true);const restart=upsertEntry(paused,{...base,currentTime:0,progressSessionID:"reset-new",progressSessionStartedAt:1002,progressSequence:1,completionEvidence:"position",completed:false,explicitStartOver:true,now:1002})!;expect(restart[0]).toMatchObject({currentTime:0,completed:false});});

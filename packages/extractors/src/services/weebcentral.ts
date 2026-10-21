@@ -37,18 +37,29 @@ const PREFIX = "[WeebCentral]";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 
-async function wcFetch(path: string, timeoutMs = 15000): Promise<string> {
+async function wcFetch(path: string, timeoutMs = 15000, signal?: AbortSignal): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${BASE}${path}`, {
       headers: { "User-Agent": UA, Accept: "text/html" },
-      signal: controller.signal,
+      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
-    return await res.text();
+    const maxBytes=32*1024*1024;
+    if(Number(res.headers.get("content-length")) > maxBytes) { await res.body?.cancel().catch(() => undefined); throw new Error("Manga metadata exceeds the size limit"); }
+    if(!res.body) return "";
+    const reader=res.body.getReader(), decoder=new TextDecoder();
+    let bytes=0, html="";
+    for(;;) {
+      const {done,value}=await reader.read(); if(done) break;
+      bytes+=value.byteLength;
+      if(bytes > maxBytes) { await reader.cancel().catch(() => undefined); throw new Error("Manga metadata exceeds the size limit"); }
+      html+=decoder.decode(value,{stream:true});
+    }
+    return html+decoder.decode();
   } finally {
     clearTimeout(timer);
   }
@@ -74,7 +85,7 @@ interface WeebSearchItem {
  */
 async function wcSearch(
   text: string,
-  opts?: { sort?: string; includedStatus?: string[]; includedType?: string[] },
+  opts?: { sort?: string; includedStatus?: string[]; includedType?: string[]; signal?: AbortSignal },
 ): Promise<WeebSearchItem[]> {
   const params = new URLSearchParams({
     text: text || "",
@@ -92,7 +103,7 @@ async function wcSearch(
     params.append("included_type", t);
   }
 
-  const html = await wcFetch(`/search/data?${params.toString()}`);
+  const html = await wcFetch(`/search/data?${params.toString()}`, 15000, opts?.signal);
   return parseSearchResults(html);
 }
 
@@ -333,11 +344,13 @@ interface WeebChapter {
  */
 export async function getChapterList(
   seriesUlid: string,
+  signal?: AbortSignal,
+  strict = false,
 ): Promise<ChapterData[]> {
   console.log(`${PREFIX} Fetching chapters for ${seriesUlid}`);
 
   try {
-    const html = await wcFetch(`/series/${seriesUlid}/full-chapter-list`);
+    const html = await wcFetch(`/series/${seriesUlid}/full-chapter-list`, 15000, signal);
 
     const chapters: WeebChapter[] = [];
     // Parse chapter entries from the HTML fragment
@@ -369,9 +382,11 @@ export async function getChapterList(
       pageCount: 0,
       publishedAt: ch.published,
       language: "en",
+      edition: ch.official ? "official" : "community",
     }));
   } catch (err) {
     console.error(`${PREFIX} getChapterList failed:`, (err as Error).message);
+    if(strict) throw err;
     return [];
   }
 }
@@ -385,7 +400,7 @@ export async function getMangaDetailsWithChapters(slug: string): Promise<MangaDa
 
   const ulid = (details as any)._ulid as string;
   if (ulid) {
-    const chapters = await getChapterList(ulid);
+    const chapters = await getChapterList(ulid, undefined, true);
     details.chapters = chapters;
     details.totalChapters = chapters.length;
   }
@@ -534,4 +549,58 @@ export function buildPageUrl(
   pageNumber: number,
 ): string {
   return `https://${cdnHost}/manga/${seriesSlug}/${String(chapterNumber).padStart(4, "0")}-${String(pageNumber).padStart(3, "0")}.png`;
+}
+
+
+/** Exact series resolution for collection downloads; never fall back to a different search result. */
+export async function getMangaCollectionDetails(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<MangaData> {
+  if (!/^[a-z0-9][a-z0-9._-]{0,299}$/i.test(slug)) throw new Error("Invalid manga identifier");
+  const results = await wcSearch(slug.replace(/-/g, " "), { signal });
+  const match = results.find((item) => item.slug.toLowerCase() === slug.toLowerCase());
+  if (!match || !/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(match.id))
+    throw new Error("Could not resolve this exact manga. Reload its details and try again.");
+  const html = await wcFetch(
+    `/series/${match.id}/${encodeURIComponent(match.slug)}`,
+    15000,
+    signal,
+  );
+  if (!html.includes("full-chapter-list")) throw new Error("Manga details are unavailable");
+  const details = parseSeriesPage(html, match.id, match.slug);
+  details.chapters = await getChapterList(match.id, signal, true);
+  if (details.chapters.some((chapter) => !/\d/.test(chapter.title || "")))
+    throw new Error(
+      "The source lists an unnumbered chapter. Use separate chapter downloads; collection order could not be confirmed.",
+    );
+  if (signal?.aborted) throw new Error("cancelled");
+  if (!details.chapters.length) throw new Error("No chapters are available from this source");
+  details.totalChapters = details.chapters.length;
+  return details;
+}
+
+/** One exact chapter request after the collection snapshot has chosen its provider ID. */
+export async function getChapterPagesById(
+  chapterId: string,
+  signal?: AbortSignal,
+): Promise<MangaPageData[]> {
+  if (!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(chapterId)) throw new Error("Invalid chapter identifier");
+  const html = await wcFetch(
+    `/chapters/${chapterId}/images?is_prev=False&current_page=1`,
+    15000,
+    signal,
+  );
+  const pages: MangaPageData[] = [];
+  for (const tag of html.matchAll(/<img\b[^>]*>/gi)) {
+    const src = tag[0].match(/\s+src=["']([^"']+)["']/i)?.[1];
+    if (!src) throw new Error("The source returned an incomplete page list");
+    const url = src.replace(/&amp;/g, "&");
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || !/\.(png|jpe?g|webp)$/i.test(parsed.pathname))
+      throw new Error("The source returned an unsupported page image");
+    pages.push({ imageUrl: url, pageNumber: pages.length + 1 });
+  }
+  if (!pages.length) throw new Error("This chapter has no readable pages");
+  return pages;
 }

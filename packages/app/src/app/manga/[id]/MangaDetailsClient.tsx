@@ -8,6 +8,7 @@ import { getMangaDetails } from "@/lib/manga/allmanga-client";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useMangaProgress } from "@/hooks/useMangaProgress";
 import DownloadButton from "@/components/downloads/DownloadButton";
+import MangaCollectionDownload from "@/components/downloads/MangaCollectionDownload";
 import type { MangaData, ChapterData } from "@flyx/core";
 
 type Tab = "chapters" | "info";
@@ -240,6 +241,7 @@ function ChaptersTab({ chapters, progress, onRead, mangaId, mangaTitle }: {
 
   return (
     <>
+      <MangaCollectionDownload key={mangaId} mangaId={mangaId} title={mangaTitle} chapters={chapters} />
       <div style={{ display: "flex", justifyContent: "flex-end", margin: "0 0 0.75rem" }}>
         <DownloadButton
           items={chapters.map((ch) => ({
@@ -248,7 +250,7 @@ function ChaptersTab({ chapters, progress, onRead, mangaId, mangaTitle }: {
             chapter: ch.number,
             title: mangaTitle,
           }))}
-          label={`Download All (${chapters.length})`}
+          label={`Download chapters separately (${chapters.length})`}
           className="btn-secondary !px-4 !py-2 text-sm"
         />
       </div>

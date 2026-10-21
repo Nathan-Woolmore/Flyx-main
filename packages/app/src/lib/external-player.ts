@@ -64,7 +64,11 @@ export function hostStreamUrl(origin: string, source: HandoffSource): string {
   // Already proxied (a relative /api/stream/proxy?… from the player, or a
   // Live TV /api/livetv/playlist?…) — just make it absolute instead of
   // double-wrapping.
-  if (HOST_PROXY_PATHS.some((p) => url.startsWith(p))) return `${base}${url}`;
+  if (url.startsWith("/") && !url.startsWith("//") && HOST_PROXY_PATHS.includes(new URL(url, base).pathname)) return `${base}${url}`;
+  if (/^https?:\/\//i.test(url)) {
+    const parsed = new URL(url);
+    if (parsed.origin === base && parsed.pathname === "/api/stream/local") return url;
+  }
   if (/^https?:\/\/[^/]+\/api\/(?:stream\/proxy|livetv\/playlist)/i.test(url)) return url;
 
   const params = new URLSearchParams();
@@ -75,7 +79,7 @@ export function hostStreamUrl(origin: string, source: HandoffSource): string {
 }
 
 /** Host-served proxy endpoints a hand-off URL may already point at. */
-export const HOST_PROXY_PATHS: ReadonlyArray<string> = ["/api/stream/proxy", "/api/livetv/playlist"];
+export const HOST_PROXY_PATHS: ReadonlyArray<string> = ["/api/stream/proxy", "/api/livetv/playlist", "/api/stream/local"];
 
 /** Control characters, whitespace and Unicode line separators. */
 // eslint-disable-next-line no-control-regex -- strips control chars on purpose

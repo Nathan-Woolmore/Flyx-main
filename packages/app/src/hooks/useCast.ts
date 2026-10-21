@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback, useRef, type RefObject } from 'react';
 import { resolveCastStreamUrl } from '@/lib/external-player-client';
 import type { HandoffSource } from '@/lib/external-player';
+import { useDesktopCast } from './useDesktopCast';
 
 declare global {
   interface Window {
@@ -223,6 +224,7 @@ function loadCastSDK(): Promise<boolean> {
 }
 
 export function useCast(options: UseCastOptions = {}) {
+  const native = useDesktopCast(options);
   const [state, setState] = useState<CastState>({
     isAvailable: true,
     isConnected: false,
@@ -262,6 +264,7 @@ export function useCast(options: UseCastOptions = {}) {
 
   // Init Cast SDK (Chrome / Android, not iOS)
   useEffect(() => {
+    if (native.isDesktop) return;
     isIOSRef.current = detectIOS();
     isSafariRef.current = detectSafari();
     isAndroidRef.current = detectAndroid();
@@ -327,10 +330,11 @@ export function useCast(options: UseCastOptions = {}) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [native.isDesktop]);
 
   // Remote Playback + AirPlay capability on the video element
   useEffect(() => {
+    if (native.isDesktop) return;
     const video = options.videoRef?.current;
     if (!video) return;
 
@@ -390,10 +394,11 @@ export function useCast(options: UseCastOptions = {}) {
         }
       };
     }
-  }, [options.videoRef, options.streamUrl, options.mediaKey]);
+  }, [native.isDesktop, options.videoRef, options.streamUrl, options.mediaKey]);
 
   // AirPlay wireless target events
   useEffect(() => {
+    if (native.isDesktop) return;
     const video = options.videoRef?.current;
     if (!video) return;
 
@@ -437,7 +442,7 @@ export function useCast(options: UseCastOptions = {}) {
         onWireless,
       );
     };
-  }, [options.videoRef, options.streamUrl, options.mediaKey]);
+  }, [native.isDesktop, options.videoRef, options.streamUrl, options.mediaKey]);
 
   const requestSession = useCallback(async () => {
     const video = options.videoRef?.current;
@@ -820,8 +825,11 @@ export function useCast(options: UseCastOptions = {}) {
     });
   }, []);
 
+  if (native.isDesktop) return { ...native, isAvailable: true, isAirPlayAvailable: false, isAirPlayActive: false, desktopPicker: native.picker };
+
   return {
     ...state,
+    desktopPicker: null,
     requestSession,
     loadMedia,
     stop,

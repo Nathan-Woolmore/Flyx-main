@@ -1,0 +1,12 @@
+import http from 'node:http';
+import {createTransferRuntime} from '../../packages/desktop/src/remote/transfer-runtime.mjs';
+import {createRendererTransfers} from '../../packages/app/src/lib/remote/renderer-transfers.mjs';
+import {createPhoneMedia} from '../../packages/desktop/src/remote/phone-media.mjs';
+let tag='',stamp='synthetic-native-A';const identity=JSON.stringify(['movie','1','1','1']);const selection={kind:'movie',contentID:1};let state={state:'paused',position:0.5,duration:2};let mode='';
+const source={identity,selection,url:'http://127.0.0.1:3891/api/stream/proxy?sig=SYNTHETIC',title:'Synthetic silent clip',contentType:'video/mp4',position:0.5,duration:2,paused:true};
+const player={identity:()=>identity,stamp:()=>stamp,transferID:()=>tag,markTransfer:id=>tag=id,snapshot:()=>({...state}),seek:position=>state.position=position,seekAndWait:async position=>{state.position=position},pause:()=>{state.state='paused'},play:async()=>{state.state='playing'}};
+const cast={getState:async()=>({isCasting:false,isConnected:false})};
+const renderer=createRendererTransfers({player,cast,currentSource:()=>({preparePhone:async()=>{if(mode==='cancel')await new Promise(r=>setTimeout(r,150));return{...source}}}),navigate:async url=>{tag=new URL(url,'http://fixture').searchParams.get('remoteTransfer');stamp='synthetic-native-'+tag;state.state='paused'},waitForPlayer:async()=>{}});
+const media=createPhoneMedia(async()=>source,{origin:'http://127.0.0.1:3891'});const runtime=createTransferRuntime(renderer,media);
+const server=http.createServer(async(req,res)=>{let bytes='';for await(const part of req)bytes+=part;try{mode=req.headers['x-fixture-mode']??'';const body=JSON.parse(bytes||'{}');let result;if(req.url==='/remote/v1/transfers')result=await runtime.handle(body.operation,body,'synthetic-native-phone');else if(req.url==='/remote/v1/info')result={features:['player.transfer.confirm.v2']};else result={...state,output:'mac',title:source.title,phonePlayback:true};res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(result));}catch(error){res.writeHead(409,{'Content-Type':'application/json'});res.end(JSON.stringify({code:error.code??'SYNTHETIC_FAILED'}));}});
+server.listen(47133,'127.0.0.1',()=>console.log('Synthetic production transfer runtime ready on loopback47133; no real native outputs'));

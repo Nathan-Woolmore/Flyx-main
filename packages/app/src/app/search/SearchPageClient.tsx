@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import type { MediaItem } from "@/types/media";
@@ -8,460 +8,144 @@ import { PageTransition } from "@/components/layout/PageTransition";
 import { ContentCard } from "@/components/ContentCard";
 import { useAnalytics } from "@/components/analytics/AnalyticsProvider";
 import { usePresenceContext } from "@/components/analytics/PresenceProvider";
-import { useDebounce } from "@/app/hooks/useDebounce";
-import { GENRES } from "@/lib/constants/genres";
+import { SearchController } from "@/lib/search/controller";
+import { fetchSearchPage } from "@/lib/search/client";
+import {
+  readSearchParameters,
+  restoreSearchSnapshot,
+  saveSearchSnapshot,
+  searchHref,
+} from "@/lib/search/state";
 import { SearchSidebar } from "./SearchSidebar";
 
-interface SearchPageClientProps {
-  initialQuery: string;
-  initialContentType: string;
-  initialGenre: string;
-}
-
-interface SearchFilters {
-  contentType: "movie" | "tv" | "anime";
-  genres: string[];
-  yearRange: [number, number];
-  minRating: number;
-  sortBy: "relevance" | "rating" | "release_date" | "popularity";
-}
-
-// MAL genre ID mapping
-const MAL_GENRE_IDS: Record<string, number> = {
-  action: 1,
-  adventure: 2,
-  comedy: 4,
-  drama: 8,
-  fantasy: 10,
-  horror: 14,
-  mystery: 7,
-  romance: 22,
-  "sci-fi": 24,
-  "slice-of-life": 36,
-  sports: 30,
-  supernatural: 37,
-  suspense: 41,
-};
-
-// Anime result type from MAL
-interface AnimeResult {
-  mal_id: number;
-  title: string;
-  title_english: string | null;
-  type: string; // "TV", "Movie", "OVA", "ONA", "Special", etc.
-  episodes: number | null;
-  score: number | null;
-  year: number | null;
-  images: {
-    jpg: { image_url: string; large_image_url: string };
-  };
-}
-
-export default function SearchPageClient({
-  initialQuery,
-  initialContentType,
-  initialGenre,
-}: SearchPageClientProps) {
+export default function SearchPageClient({ initialSearch }: { initialSearch: string }) {
   const router = useRouter();
   const { trackPageView } = useAnalytics();
-
-  // State management
-  const [query, setQuery] = useState(initialQuery);
-  const debouncedQuery = useDebounce(query, 500);
-
-  const [results, setResults] = useState<MediaItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-
-  const [filters, setFilters] = useState<SearchFilters>({
-    contentType: (initialContentType === "anime"
-      ? "anime"
-      : initialContentType === "tv"
-        ? "tv"
-        : "movie") as "movie" | "tv" | "anime",
-    genres: initialGenre ? [initialGenre] : [],
-    yearRange: [1900, new Date().getFullYear()],
-    minRating: 0,
-    sortBy: "relevance",
-  });
-
+  const presence = usePresenceContext();
+  const [controller] = useState(
+    () =>
+      new SearchController(
+        readSearchParameters(new URLSearchParams(initialSearch)),
+        fetchSearchPage,
+      ),
+  );
+  const state = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  );
+  const { query, filters, items: results, loading, error } = state;
+  const hasMore = state.nextPage !== null;
+  const href = searchHref(state);
+  const resultsCurrent = state.resultsHref === href;
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [restoreY, setRestoreY] = useState<number | null>(null);
+  const restoring = useRef(false);
+  const leaving = useRef(false);
+  const scrollY = useRef(0);
   const observerTarget = useRef<HTMLDivElement>(null);
-  const loadingRef = useRef(false);
-  const [sessionId, setSessionId] = useState("");
 
   useEffect(() => {
-    // Initialize session ID from storage or create new one
-    if (typeof window !== "undefined") {
-      let sid = sessionStorage.getItem("flyx_session_id");
-      if (!sid) {
-        sid = `session_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-        sessionStorage.setItem("flyx_session_id", sid);
-      }
-      setSessionId(sid);
-
-      // Restore scroll position if returning from details page
-      const navigationOrigin = sessionStorage.getItem("flyx_navigation_origin");
-      if (navigationOrigin) {
+    const save = () => {
+      const snapshot = controller.capture(scrollY.current);
+      if (snapshot) {
         try {
-          const origin = JSON.parse(navigationOrigin);
-          if (origin.type === "search" && origin.scrollY) {
-            // Delay scroll restoration to allow content to render
-            setTimeout(() => {
-              window.scrollTo(0, origin.scrollY);
-            }, 100);
-          }
-        } catch (e) {
-          // Ignore parse errors
+          saveSearchSnapshot(sessionStorage, snapshot);
+        } catch {
+          /* Storage may be disabled. */
         }
       }
-    }
-  }, []);
-
-  // Get presence context for browsing tracking
-  const presenceContext = usePresenceContext();
-
-  // Analytics tracking - only when query changes
-  useEffect(() => {
-    if (sessionId) {
-      trackPageView("/search");
-
-      // Track browsing activity with search query
-      if (presenceContext?.setBrowsingContext) {
-        const searchContext = query ? `Search: "${query}"` : "Search";
-        presenceContext.setBrowsingContext(searchContext);
-      }
-    }
-  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Sort helper
-  const sortResults = (items: MediaItem[], sortBy: string): MediaItem[] => {
-    switch (sortBy) {
-      case "rating":
-        return [...items].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
-      case "release_date":
-        return [...items].sort((a, b) => {
-          const dateA = new Date(a.release_date || a.first_air_date || "").getTime();
-          const dateB = new Date(b.release_date || b.first_air_date || "").getTime();
-          return dateB - dateA;
-        });
-      case "popularity":
-        return [...items].sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0));
-      default:
-        return items;
-    }
-  };
-
-  // Perform search
-  // Anime search: Jikan /anime via the cached /api/anime/jikan proxy.
-  const performAnimeSearch = useCallback(
-    async (
-      searchQuery: string,
-      searchFilters: SearchFilters,
-      pageNum: number,
-      append: boolean = false,
-    ) => {
+    };
+    const activate = () => {
+      if (window.location.pathname !== "/search") return;
+      leaving.current = false;
+      const parameters = readSearchParameters(new URLSearchParams(window.location.search));
+      let saved = null;
       try {
-        let animeResults: AnimeResult[] = [];
-
-        // Jikan /anime search through the cached server proxy (extra query
-        // params are forwarded to Jikan alongside `path`).
-        const searchUrl = new URL("/api/anime/jikan", window.location.origin);
-        searchUrl.searchParams.set("path", "/anime");
-        searchUrl.searchParams.set("sfw", "true");
-        searchUrl.searchParams.set("sort", "desc");
-        searchUrl.searchParams.set("page", pageNum.toString());
-        searchUrl.searchParams.set("limit", "24");
-        searchUrl.searchParams.set(
-          "order_by",
-          searchFilters.sortBy === "rating"
-            ? "score"
-            : searchFilters.sortBy === "release_date"
-              ? "start_date"
-              : "members",
-        );
-
-        if (searchQuery.trim()) {
-          searchUrl.searchParams.set("q", searchQuery);
-        }
-
-        if (searchFilters.genres.length > 0) {
-          const genreIds = searchFilters.genres
-            .map((slug) => MAL_GENRE_IDS[slug])
-            .filter((id) => id !== undefined);
-          if (genreIds.length > 0) {
-            searchUrl.searchParams.set("genres", genreIds.join(","));
-          }
-        }
-
-        if (searchFilters.yearRange[0] > 1900) {
-          searchUrl.searchParams.set("start_date", `${searchFilters.yearRange[0]}-01-01`);
-        }
-        if (searchFilters.yearRange[1] < new Date().getFullYear()) {
-          searchUrl.searchParams.set("end_date", `${searchFilters.yearRange[1]}-12-31`);
-        }
-
-        if (searchFilters.minRating > 0) {
-          searchUrl.searchParams.set("min_score", searchFilters.minRating.toString());
-        }
-
-        const response = await fetch(searchUrl.toString());
-        const data = await response.json();
-
-        if (!response.ok) {
-          console.error("Anime search API error:", response.status, data);
-          if (response.status === 429) {
-            setHasMore(false);
-          }
-          throw new Error(data.message || "Anime search failed");
-        }
-
-        animeResults = data.data || [];
-
-        // Transform MAL results to MediaItem format for consistent display
-        const transformedResults: MediaItem[] = animeResults.map((anime: AnimeResult) => ({
-          id: anime.mal_id.toString(),
-          title: anime.title_english || anime.title,
-          name: anime.title,
-          overview: "",
-          posterPath: anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || "",
-          poster_path: anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || "",
-          backdropPath: "",
-          releaseDate: anime.year ? `${anime.year}-01-01` : "",
-          first_air_date: anime.year ? `${anime.year}-01-01` : "",
-          rating: anime.score || 0,
-          vote_average: anime.score || 0,
-          voteCount: 0,
-          vote_count: 0,
-          mediaType: "anime" as any,
-          genres: [],
-          genre_ids: [],
-          // Store MAL ID and anime type for navigation
-          mal_id: anime.mal_id,
-          anime_type: anime.type, // "TV", "Movie", "OVA", "ONA", "Special", etc.
-          episodes: anime.episodes ?? undefined,
-        }));
-
-        // Update URL without reload
-        const params = new URLSearchParams();
-        if (searchQuery) params.set("q", searchQuery);
-        params.set("type", "anime");
-        if (searchFilters.genres.length > 0) params.set("genre", searchFilters.genres[0]);
-        window.history.replaceState(null, "", `/search?${params.toString()}`);
-
-        if (append) {
-          setResults((prev) => [...prev, ...transformedResults]);
-        } else {
-          setResults(transformedResults);
-        }
-
-        setHasMore(data.pagination?.has_next_page || false);
-      } catch (error) {
-        console.error("Anime search error:", error);
-        if (!append) setResults([]);
-        setHasMore(false);
-      } finally {
-        setLoading(false);
-        loadingRef.current = false;
+        saved = restoreSearchSnapshot(sessionStorage, parameters);
+      } catch {
+        /* Use URL filters. */
       }
-    },
-    [],
-  );
+      restoring.current = saved !== null;
+      scrollY.current = saved?.scrollY ?? 0;
+      setRestoreY(saved?.scrollY ?? null);
+      controller.activate(parameters, saved);
+    };
+    const trackScroll = () => {
+      if (!restoring.current) scrollY.current = window.scrollY;
+    };
+    activate();
+    window.addEventListener("popstate", activate);
+    window.addEventListener("scroll", trackScroll, { passive: true });
+    window.addEventListener("pagehide", save);
+    return () => {
+      if (!leaving.current) save();
+      controller.cancel();
+      window.removeEventListener("popstate", activate);
+      window.removeEventListener("scroll", trackScroll);
+      window.removeEventListener("pagehide", save);
+    };
+  }, [controller]);
 
-  const performSearch = useCallback(
-    async (
-      searchQuery: string,
-      searchFilters: SearchFilters,
-      pageNum: number,
-      append: boolean = false,
-    ) => {
-      // Wait for session ID initialization
-      if (!sessionId) return;
-
-      // DEBUG LOGGING
-      console.log(
-        `performSearch called: query="${searchQuery}", page=${pageNum}, append=${append}, contentType=${searchFilters.contentType}`,
-      );
-
-      if (loadingRef.current) {
-        console.log("Aborting search: Already loading");
-        return;
-      }
-
-      setLoading(true);
-      loadingRef.current = true;
-
-      try {
-        // Handle anime search via MAL
-        if (searchFilters.contentType === "anime") {
-          await performAnimeSearch(searchQuery, searchFilters, pageNum, append);
-          return;
-        }
-
-        // Build search URL for movies/TV (TMDB)
-        const searchUrl = new URL("/api/content/search", window.location.origin);
-        searchUrl.searchParams.set("query", searchQuery);
-        searchUrl.searchParams.set("page", pageNum.toString());
-        searchUrl.searchParams.set("sessionId", sessionId);
-        searchUrl.searchParams.set("type", searchFilters.contentType);
-        searchUrl.searchParams.set("excludeAnime", "true"); // Filter out anime from TMDB results
-
-        // Pass genre to API if available (using the first one for now to guide the search)
-        if (searchFilters.genres.length > 0) {
-          searchUrl.searchParams.set("genre", searchFilters.genres[0]);
-        }
-
-        const response = await fetch(searchUrl.toString());
-        const data = await response.json();
-
-        if (!response.ok) {
-          console.error("Search API error:", response.status, data);
-          // If rate limited or validation error (400), stop infinite scroll
-          if (response.status === 429 || response.status === 400) {
-            setHasMore(false);
-          }
-          throw new Error(data.message || "Search failed");
-        }
-
-        let searchResults = data.data || [];
-
-        // Client-side filtering for advanced features
-        searchResults = searchResults.filter((item: any) => {
-          // Filter by Content Type
-          if (item.mediaType !== searchFilters.contentType) return false;
-
-          // Filter by Year
-          const year = new Date(item.release_date || item.first_air_date || "").getFullYear();
-          if (year < searchFilters.yearRange[0] || year > searchFilters.yearRange[1]) return false;
-
-          // Filter by Rating
-          if ((item.vote_average || 0) < searchFilters.minRating) return false;
-
-          // Filter by Genres (if any selected)
-          if (searchFilters.genres.length > 0) {
-            // Get genre IDs matching the selected slugs, considering content type
-            const selectedGenreIds = searchFilters.genres
-              .flatMap((slug) => {
-                // Find all genres matching this slug
-                const matchingGenres = GENRES.filter((g) => g.slug === slug);
-
-                // If filtering by specific content type, only use that type's genre ID
-                if (searchFilters.contentType === "movie") {
-                  const movieGenre = matchingGenres.find((g) => g.type === "movie");
-                  return movieGenre ? [movieGenre.id] : [];
-                } else if (searchFilters.contentType === "tv") {
-                  const tvGenre = matchingGenres.find((g) => g.type === "tv");
-                  return tvGenre ? [tvGenre.id] : [];
-                }
-
-                // For 'all' content type, include both movie and TV genre IDs
-                return matchingGenres.map((g) => g.id);
-              })
-              .filter((id, index, arr) => arr.indexOf(id) === index); // Remove duplicates
-
-            if (selectedGenreIds.length > 0) {
-              const itemGenreIds = item.genre_ids || item.genres?.map((g: any) => g.id) || [];
-              // Check if item has ANY of the selected genre IDs (more lenient matching)
-              const hasAnyGenre = selectedGenreIds.some((id) => itemGenreIds.includes(id));
-              if (!hasAnyGenre) return false;
-            }
-          }
-
-          return true;
-        });
-
-        // Sort results
-        searchResults = sortResults(searchResults, searchFilters.sortBy);
-
-        // Update URL without reload
-        const params = new URLSearchParams();
-        if (searchQuery) params.set("q", searchQuery);
-        params.set("type", searchFilters.contentType);
-        if (searchFilters.genres.length > 0) params.set("genre", searchFilters.genres[0]);
-        window.history.replaceState(null, "", `/search?${params.toString()}`);
-
-        if (append) {
-          setResults((prev) => [...prev, ...searchResults]);
-        } else {
-          setResults(searchResults);
-        }
-
-        setHasMore(searchResults.length > 0);
-      } catch (error) {
-        console.error("Search error:", error);
-        if (!append) setResults([]);
-      } finally {
-        setLoading(false);
-        loadingRef.current = false;
-      }
-    },
-    [sessionId, performAnimeSearch],
-  );
-
-  // Effect for live search and filter changes
   useEffect(() => {
-    // Always allow search, even if empty (shows trending)
-    setHasMore(true);
+    // Retain Next's history metadata so its Back navigation remains intact.
+    window.history.replaceState(window.history.state, "", href);
+  }, [href]);
 
-    setPage(1);
-    performSearch(debouncedQuery, filters, 1, false);
-  }, [debouncedQuery, filters, performSearch]);
-
-  // Infinite scroll observer
   useEffect(() => {
+    trackPageView("/search");
+  }, [trackPageView]);
+  useEffect(() => {
+    presence.setBrowsingContext(query ? `Search: "${query}"` : "Search");
+  }, [query, presence.setBrowsingContext]);
+
+  useEffect(() => {
+    if (restoreY === null || loading || !resultsCurrent) return;
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        window.scrollTo(0, restoreY);
+        scrollY.current = window.scrollY;
+        restoring.current = false;
+        setRestoreY(null);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [restoreY, loading, resultsCurrent]);
+
+  useEffect(() => {
+    if (!hasMore || loading || error || !results.length || restoring.current) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingRef.current) {
-          // Double check conditions before triggering next page
-          // We allow empty query now for trending content
-
-          setPage((prev) => {
-            const newPage = prev + 1;
-            performSearch(debouncedQuery, filters, newPage, true);
-            return newPage;
-          });
-        }
+        if (entries[0]?.isIntersecting && !restoring.current) controller.loadMore();
       },
       { threshold: 0.5, rootMargin: "100px" },
     );
-
-    if (observerTarget.current) {
-      observer.observe(observerTarget.current);
-    }
-
+    if (observerTarget.current) observer.observe(observerTarget.current);
     return () => observer.disconnect();
-  }, [hasMore, debouncedQuery, filters, performSearch]);
+  }, [controller, hasMore, loading, error, results.length, restoreY]);
 
   const handleContentClick = (item: MediaItem) => {
-    // Anime → MAL details page
-    if ((item as any).mal_id) {
-      const malId = (item as any).mal_id;
-      sessionStorage.setItem(
-        "flyx_navigation_origin",
-        JSON.stringify({
-          type: "search",
-          query: query || debouncedQuery,
-          filters,
-          scrollY: window.scrollY,
-        }),
-      );
-      router.push(`/anime/${malId}`);
-      return;
+    if (!resultsCurrent) return;
+    const snapshot = controller.capture(window.scrollY);
+    if (snapshot) {
+      try {
+        saveSearchSnapshot(sessionStorage, snapshot);
+      } catch {
+        /* URL filters still work. */
+      }
     }
-
-    // Movies / TV → details surface
-    sessionStorage.setItem(
-      "flyx_navigation_origin",
-      JSON.stringify({
-        type: "search",
-        query: query || debouncedQuery,
-        filters,
-        scrollY: window.scrollY,
-      }),
+    leaving.current = true;
+    window.history.replaceState(window.history.state, "", href);
+    const malId = (item as any).mal_id;
+    router.push(
+      malId
+        ? `/anime/${malId}`
+        : `/details/${item.id}?type=${item.mediaType === "tv" ? "tv" : "movie"}`,
     );
-    const mediaType = item.mediaType === "tv" ? "tv" : "movie";
-    router.push(`/details/${item.id}?type=${mediaType}`);
   };
 
   return (
@@ -499,12 +183,12 @@ export default function SearchPageClient({
             <div className={`search-filters-panel ${isSidebarOpen ? "is-open" : ""}`}>
               <SearchSidebar
                 filters={filters}
-                onFilterChange={(newFilters) => setFilters((prev) => ({ ...prev, ...newFilters }))}
+                onFilterChange={(newFilters) => controller.setFilters(newFilters)}
               />
             </div>
 
             {/* Main Content */}
-            <main className="search-results-pane">
+            <main className="search-results-pane" aria-busy={loading}>
               {/* Search Input Area */}
               <div className="search-input-shell">
                 <div className="search-input-icon">
@@ -524,7 +208,7 @@ export default function SearchPageClient({
                 <input
                   type="search"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => controller.setQuery(e.target.value)}
                   placeholder={
                     filters.contentType === "anime"
                       ? "Search anime..."
@@ -549,7 +233,7 @@ export default function SearchPageClient({
                   ) : query ? (
                     <button
                       type="button"
-                      onClick={() => setQuery("")}
+                      onClick={() => controller.setQuery("")}
                       className="flex h-7 w-7 items-center justify-center rounded-full text-white/40 transition hover:bg-white/10 hover:text-white"
                       aria-label="Clear search"
                     >
@@ -558,6 +242,22 @@ export default function SearchPageClient({
                   ) : null}
                 </div>
               </div>
+
+              {filters.contentType !== "anime" &&
+                query.trim() &&
+                filters.sortBy !== "relevance" && (
+                  <p className="search-results-note">
+                    Sorted among loaded title matches. Scroll for more.
+                  </p>
+                )}
+              {error && (
+                <div className="search-feedback" role="alert">
+                  <p>{error}</p>
+                  <button type="button" className="btn-secondary" onClick={controller.retry}>
+                    Try again
+                  </button>
+                </div>
+              )}
 
               {/* Results Grid */}
               {results.length > 0 ? (
@@ -619,7 +319,8 @@ export default function SearchPageClient({
                   </AnimatePresence>
                 </div>
               ) : (
-                !loading && (
+                !loading &&
+                !error && (
                   <div className="search-empty">
                     <div className="search-empty-icon">
                       <svg
@@ -634,17 +335,34 @@ export default function SearchPageClient({
                         <path d="m20 20-3.5-3.5" />
                       </svg>
                     </div>
-                    <p className="font-display text-xl text-white/50">No results found</p>
+                    <p className="font-display text-xl text-white/50">
+                      {hasMore ? "No matches in the pages searched yet" : "No results found"}
+                    </p>
                     <p className="mt-2 text-sm text-white/30">
-                      Try adjusting your search or filters
+                      {hasMore
+                        ? "Continue searching for titles that match your filters."
+                        : "Try adjusting your search or filters"}
                     </p>
                   </div>
                 )
               )}
 
+              {hasMore && !loading && !error && !results.length && (
+                <div className="search-feedback">
+                  <button type="button" className="btn-secondary" onClick={controller.loadMore}>
+                    Search more results
+                  </button>
+                </div>
+              )}
+
               {/* Loading More Indicator */}
-              {hasMore && (
-                <div ref={observerTarget} className="h-20 flex items-center justify-center mt-8">
+              {(loading || (hasMore && !error && results.length > 0)) && (
+                <div
+                  ref={observerTarget}
+                  className="search-loading"
+                  role="status"
+                  aria-label={loading ? "Searching titles" : "More results"}
+                >
                   {loading && (
                     <div
                       className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"

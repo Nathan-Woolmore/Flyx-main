@@ -35,13 +35,15 @@ import {
   IconVolumeMute,
 } from './icons';
 import { getPlayerPreferences } from '@/lib/utils/player-preferences';
+import { orderedStartupSources, hlsStartupLevel } from './source-quality';
 import { useMediaSession } from '@/hooks/useMediaSession';
 import { useCast } from '@/hooks/useCast';
+import { isSilentDesktopPlayback } from '@/lib/desktop-playback';
 import PlayerHelpModal, {
   shouldAutoShowPlayerHelp,
   markPlayerHelpSeen,
 } from './PlayerHelpModal';
-import { CastButton, CastOverlay, CastErrorBanner, IconHelp, IconCast } from './CastUI';
+import { CastButton, CastOverlay, DesktopCastPicker, CastErrorBanner, IconHelp, IconCast } from './CastUI';
 import { openInVlc, copyStreamUrl, resolveHostStreamUrl } from '@/lib/external-player-client';
 import { buildVlcPlaylist, handoffTitle, playlistFilename } from '@/lib/external-player';
 import { usePlaybackRecovery } from './usePlaybackRecovery';
@@ -73,13 +75,14 @@ const MUTE_KEY = 'flyx:player:muted';
 
 function loadVolume(): number {
   if (typeof window === 'undefined') return 1;
+  if (isSilentDesktopPlayback()) return 0;
   const v = parseFloat(localStorage.getItem(VOLUME_KEY) || '1');
   return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
 }
 
 function loadMuted(): boolean {
   if (typeof window === 'undefined') return false;
-  return localStorage.getItem(MUTE_KEY) === '1';
+  return isSilentDesktopPlayback() || localStorage.getItem(MUTE_KEY) === '1';
 }
 
 export default function VideoPlayer({
@@ -152,6 +155,7 @@ export default function VideoPlayer({
   const helpAutoOpenedRef = useRef(false);
 
   const prefs = useRef(getPlayerPreferences());
+  const explicitSourceUrlRef = useRef<string | null>(null);
 
   // Publish now-playing metadata to the system media session (Windows SMTC,
   // read by VRChat companions like MagicChatbox) and the window title.
@@ -215,6 +219,12 @@ export default function VideoPlayer({
       if (failoverLockRef.current) return;
       failoverLockRef.current = true;
       pendingResumeRef.current = resumeAt;
+      if (explicitSourceUrlRef.current === currentStreamUrl) {
+        setStatus('error');
+        setErrorMsg('This version could not play. Choose another source or retry.');
+        failoverLockRef.current = false;
+        return;
+      }
       setSourceIndex((i) => i + 1);
       setTimeout(() => {
         failoverLockRef.current = false;
@@ -247,6 +257,7 @@ export default function VideoPlayer({
   const fetchSources = useCallback(async () => {
     setStatus('loading');
     setErrorMsg(null);
+    explicitSourceUrlRef.current = null;
     setSources([]);
     setSourceIndex(0);
 
@@ -363,7 +374,7 @@ export default function VideoPlayer({
         return;
       }
 
-      setSources(list);
+      setSources(orderedStartupSources(list, getPlayerPreferences().preferredQuality));
       setProvider(usedProvider);
       setSourceIndex(0);
       setStatus('ready');
@@ -440,7 +451,7 @@ export default function VideoPlayer({
           video.currentTime = Math.min(pendingResumeRef.current, video.duration - 1);
           pendingResumeRef.current = 0;
         }
-        if (autoplay || hasAutoPlayedRef.current) {
+        if (!isSilentDesktopPlayback() && (autoplay || hasAutoPlayedRef.current)) {
           video.play().catch(() => setIsPlaying(false));
         }
         hasAutoPlayedRef.current = true;
@@ -450,6 +461,7 @@ export default function VideoPlayer({
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: false,
+          autoStartLoad: false,
           backBufferLength: 90,
           maxBufferLength: 30,
           maxMaxBufferLength: 60,
@@ -465,9 +477,10 @@ export default function VideoPlayer({
           nudgeMaxRetry: 3,
         });
         hlsRef.current = hls;
-        hls.loadSource(url);
-        hls.attachMedia(video as unknown as HTMLMediaElement);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          hls.startLevel = hlsStartupLevel(hls.levels, getPlayerPreferences().preferredQuality,
+            explicitSourceUrlRef.current === src.url);
+          hls.startLoad(-1);
           setIsBuffering(false);
           onReady();
         });
@@ -477,6 +490,8 @@ export default function VideoPlayer({
           // rebuild the pipeline at the stall point or restart from zero.
           recovery.handleHlsError(hls, data);
         });
+        hls.loadSource(url);
+        hls.attachMedia(video as unknown as HTMLMediaElement);
       } else if (video.canPlayType('application/vnd.apple.mpegurl') && isHls) {
         video.src = url;
         video.addEventListener('loadedmetadata', onReady, { once: true });
@@ -767,11 +782,13 @@ export default function VideoPlayer({
         ? `S${season} E${episode}`
         : undefined;
 
+    const current = sources[sourceIndex];
     const ok = await cast.loadMedia({
       url,
+      source: current ? { url: current.rawUrl || current.url, referer: current.referer, origin: current.origin } : { url },
       title: title || 'Flyx',
       subtitle: epLabel,
-      contentType: url.includes('.m3u8')
+      contentType: current?.type === 'hls' || url.includes('.m3u8')
         ? 'application/x-mpegURL'
         : 'video/mp4',
       startTime: videoRef.current?.currentTime || 0,
@@ -868,11 +885,12 @@ export default function VideoPlayer({
     (index: number) => {
       const resume = videoRef.current?.currentTime || 0;
       pendingResumeRef.current = resume;
+      explicitSourceUrlRef.current = sources[index]?.url ?? null;
       setSourceIndex(index);
       setShowServers(false);
       showToast(`Source ${index + 1}`);
     },
-    [showToast],
+    [showToast, sources],
   );
 
   const changeSpeed = useCallback(
@@ -1570,6 +1588,8 @@ export default function VideoPlayer({
       )}
 
       {/* Casting UI */}
+      {cast.desktopPicker && <DesktopCastPicker picker={cast.desktopPicker} />}
+
       {isCastOverlayVisible && (cast.isCasting || cast.isConnected) && (
         <CastOverlay
           title={title || 'Now playing'}
@@ -1582,6 +1602,10 @@ export default function VideoPlayer({
           currentTime={cast.currentTime || currentTime}
           duration={cast.duration || duration}
           isPlaying={cast.playerState === 'PLAYING'}
+          volume={cast.volume}
+          isMuted={cast.isMuted}
+          onVolume={cast.desktopPicker ? cast.setVolume : undefined}
+          onMute={cast.desktopPicker ? cast.toggleMute : undefined}
           onPlayPause={cast.playOrPause}
           onSeek={cast.seek}
           onStop={() => {

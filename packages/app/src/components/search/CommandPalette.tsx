@@ -111,15 +111,6 @@ const ACTIONS: QuickAction[] = [
     icon: "live",
   },
   {
-    id: "nav-search",
-    label: "Full search page",
-    hint: "Open search",
-    href: "/search",
-    group: "Search",
-    keywords: "find query",
-    icon: "search",
-  },
-  {
     id: "nav-watchlist",
     label: "Watchlist",
     hint: "Saved titles",
@@ -361,7 +352,7 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
     | { kind: "action"; action: QuickAction }
     | { kind: "hit"; hit: SearchHit };
 
-  // Display order === keyboard order: Navigate → Library → Search → Titles
+  // Display order === keyboard order: Search → Navigate → Library → Titles
   const { groups, flatItems } = useMemo(() => {
     const map = new Map<string, QuickAction[]>();
     for (const a of filteredActions) {
@@ -369,21 +360,18 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
       list.push(a);
       map.set(a.group, list);
     }
-    if (query.trim().length >= 1) {
-      const full: QuickAction = {
-        id: "search-full",
-        label: `Search “${query.trim()}” on full page`,
-        hint: "Open search results",
-        href: `/search?q=${encodeURIComponent(query.trim())}`,
-        group: "Search",
-        icon: "search",
-      };
-      const list = map.get("Search") || [];
-      list.push(full);
-      map.set("Search", list);
-    }
+    const searchQuery = query.trim();
+    const full: QuickAction = {
+      id: "search-full",
+      label: "Full search page",
+      hint: "Filter by genre, rating and release year",
+      href: searchQuery ? `/search?q=${encodeURIComponent(searchQuery)}` : "/search",
+      group: "Search",
+      icon: "search",
+    };
+    map.set("Search", [full]);
 
-    const order = ["Navigate", "Library", "Search"] as const;
+    const order = ["Search", "Navigate", "Library"] as const;
     const ordered = new Map<string, QuickAction[]>();
     for (const g of order) {
       if (map.has(g)) ordered.set(g, map.get(g)!);
@@ -522,7 +510,7 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
                     role="option"
                     aria-selected={isActive}
                     data-cmd-index={idx}
-                    className={`cmdk-item ${isActive ? "cmdk-item-active" : ""}`}
+                    className={`cmdk-item ${action.id === "search-full" ? "cmdk-search-primary" : ""} ${isActive ? "cmdk-item-active" : ""}`}
                     onMouseEnter={() => setActive(idx)}
                     onClick={() => runItem({ kind: "action", action })}
                   >

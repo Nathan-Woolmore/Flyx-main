@@ -1,0 +1,75 @@
+.hero {
+  position: relative;
+  min-height: clamp(340px, 52vh, 520px);
+  overflow: hidden;
+}
+
+.heroInner {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-height: inherit;
+  padding-block: 32px 24px;
+}
+
+.heroCopy {
+  width: 100%;
+  max-width: 42rem;
+  min-width: 0;
+}
+
+.heroControls {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+
+.dot {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dot::before {
+  content: '';
+  width: 12px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  transition: width 180ms ease, background 180ms ease;
+}
+
+.dot:hover::before {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.dot.activeDot::before {
+  width: 24px;
+  background: #00e5bf;
+  box-shadow: 0 0 12px rgba(0, 229, 191, 0.5);
+}
+
+.dot:focus-visible {
+  outline: 2px solid #00e5bf;
+  outline-offset: 2px;
+}
+
+@media (min-width: 768px) {
+  .heroInner {
+    padding-block: 40px 32px;
+  }
+}

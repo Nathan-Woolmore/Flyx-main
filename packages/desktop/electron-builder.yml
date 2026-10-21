@@ -18,7 +18,11 @@ files:
   - main.js
   - preload.js
   - src/**/*.js
+  - src/**/*.mjs
   - package.json
+  # iOS remains source-only in this monorepo, outside the desktop payload.
+  - "!../../ios/**"
+  - "!../../tests/remote/**"
 
 extraResources:
   - from: ../../.flyx-standalone
@@ -104,6 +108,10 @@ mac:
   target: [dmg]
   icon: build/icon.png
   category: public.app-category.entertainment
+  extendInfo:
+    NSLocalNetworkUsageDescription: Flyx uses your local network to find Google Cast TVs and send the selected movie directly to your TV.
+    NSBonjourServices:
+      - _googlecast._tcp
   # No Apple developer identity: let electron-builder skip its own signing
   # (it would only log a warning) — the afterPack hook ad-hoc signs instead.
   identity: null

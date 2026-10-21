@@ -7,7 +7,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/get-session";
-import { createJobs, listJobs } from "@/lib/downloads/manager";
+import { createOrReuseJobs, listJobs } from "@/lib/downloads/manager";
+import { openLocalDownload } from "@/lib/downloads/local-files";
+import { getDownloadDir } from "@/lib/downloads/types";
 import type { DownloadItemInput } from "@/lib/downloads/types";
 
 export const runtime = "nodejs";
@@ -29,24 +31,36 @@ function validateItems(items: unknown): DownloadItemInput[] {
 
     if (it.kind === "video") {
       const tmdbId = Number(it.tmdbId);
-      const malId = it.malId ? Number(it.malId) : undefined;
-      if (!Number.isFinite(tmdbId)) {
-        throw new Error(`items[${i}] is missing a valid tmdbId`);
-      }
-      // Anime requests route by malId and may carry tmdbId=0.
-      if (tmdbId <= 0 && !malId) {
-        throw new Error(`items[${i}] is missing a valid tmdbId`);
+      const malId = it.malId != null ? Number(it.malId) : undefined;
+      if (
+        !Number.isSafeInteger(tmdbId) ||
+        tmdbId < 0 ||
+        (malId !== undefined && (!Number.isSafeInteger(malId) || malId <= 0)) ||
+        (tmdbId === 0 && !malId)
+      ) {
+        throw new Error(`items[${i}] is missing a valid tmdbId/malId`);
       }
       const mediaType = it.mediaType === "tv" ? "tv" : "movie";
-      if (mediaType === "tv" && !it.season && !it.episode) {
-        throw new Error(`items[${i}] is missing season/episode`);
+      if (it.mediaType !== undefined && it.mediaType !== "tv" && it.mediaType !== "movie") {
+        throw new Error(`items[${i}] has an invalid mediaType`);
+      }
+      const season = it.season != null ? Number(it.season) : undefined;
+      const episode = it.episode != null ? Number(it.episode) : undefined;
+      if (
+        mediaType === "tv" &&
+        (!Number.isSafeInteger(season) ||
+          season! < 0 ||
+          !Number.isSafeInteger(episode) ||
+          episode! <= 0)
+      ) {
+        throw new Error(`items[${i}] is missing a valid season/episode`);
       }
       return {
         kind: "video",
         tmdbId,
         mediaType,
-        season: it.season ? Number(it.season) : undefined,
-        episode: it.episode ? Number(it.episode) : undefined,
+        season: mediaType === "tv" ? season : undefined,
+        episode: mediaType === "tv" ? episode : undefined,
         malId,
         title: typeof it.title === "string" ? it.title : undefined,
         provider: typeof it.provider === "string" ? it.provider : undefined,
@@ -58,6 +72,25 @@ function validateItems(items: unknown): DownloadItemInput[] {
 
     if (it.kind === "manga") {
       const mangaId = String(it.mangaId || "");
+      if (it.collection !== undefined) {
+        const scope = it.collection as Record<string, unknown> | null;
+        if (
+          !scope ||
+          typeof scope !== "object" ||
+          typeof scope.language !== "string" ||
+          !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/i.test(scope.language) ||
+          (scope.edition !== "official" && scope.edition !== "community") ||
+          !/^[a-z0-9][a-z0-9._-]{0,299}$/i.test(mangaId)
+        )
+          throw new Error(`items[${i}] has an invalid collection selection`);
+        return {
+          kind: "manga",
+          mangaId,
+          chapter: 0,
+          title: typeof it.title === "string" ? it.title : undefined,
+          collection: { language: scope.language, edition: scope.edition },
+        } as DownloadItemInput;
+      }
       const chapter = Number(it.chapter);
       if (!mangaId || !Number.isFinite(chapter) || chapter <= 0) {
         throw new Error(`items[${i}] is missing a valid mangaId/chapter`);
@@ -79,7 +112,17 @@ export async function GET() {
   if (!session?.isAdmin) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
-  return NextResponse.json({ ok: true, jobs: listJobs() });
+  return NextResponse.json({
+    ok: true,
+    jobs: await Promise.all(listJobs().map(async ({ collectionPlan: _plan, ...visible }) => {
+      const file = visible.kind === "video" && visible.status === "done"
+        ? await openLocalDownload(visible, listJobs(), getDownloadDir()) : null;
+      const localPlaybackAvailable = file !== null;
+      const fileBytes = file?.size;
+      await file?.handle.close();
+      return { ...visible, canTrash:process.platform==="darwin" && process.env.FLYX_DESKTOP==="true" && visible.status==="done" && /^[a-f0-9]{64}$/.test(visible.fileRevision ?? ""), localPlaybackAvailable, ...(fileBytes ? { fileBytes } : {}) };
+    })),
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -97,7 +140,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const items = validateItems(body?.items);
-    const jobs = createJobs(items);
+    const jobs = await createOrReuseJobs(items);
     return NextResponse.json({ ok: true, jobs: jobs.map((j) => ({ id: j.id, label: j.label })) });
   } catch (err) {
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 400 });

@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import crypto from 'node:crypto';
+import {createDeviceStore} from '../../packages/desktop/src/remote/device-store.mjs';
+import {RemoteCore} from '../../packages/desktop/src/remote/remote-core.mjs';
+import {PairingApproval} from '../../packages/desktop/src/remote/pairing.mjs';
+import {createRemoteHandler} from '../../packages/desktop/src/remote/protocol.mjs';
+const token='SYNTHETIC-REMEMBERED-PHONE-ONLY-'.repeat(3);
+function fixture(){const folder=fs.mkdtempSync(path.join(os.tmpdir(),'flyx-remembered-'));fs.chmodSync(folder,0o700);const id='fixture-phone-001',now=100000;
+ fs.writeFileSync(path.join(folder,'devices.json'),JSON.stringify({version:1,devices:[],pending:[{id,name:'Synthetic phone',digest:crypto.createHash('sha256').update(token).digest('hex'),expires:now+3600000}]}),{mode:0o600});
+ const store=createDeviceStore(folder,()=>now);const makeCore=()=>new RemoteCore({now:()=>now,loadDevices:store.loadDevices,saveDevices:store.saveDevices,dispatch:async()=>({ok:true})});return{folder,id,store,makeCore,cleanup:()=>fs.rmSync(folder,{recursive:true,force:true})};}
+test('prepared phone remains unauthorized until its explicit local Mac approval; no plaintext token reaches disk',async()=>{const f=fixture();try{const core=f.makeCore(),pairing=new PairingApproval({core,enrollmentStore:f.store,now:()=>100000});const handle=createRemoteHandler({core,pairing,pendingSession:t=>f.store.pendingToken(t)});
+ const request=t=>handle({method:'GET',path:'/remote/v1/session',headers:{authorization:`Bearer ${t}`}});
+ assert.equal((await request(token)).status,403);assert.equal((await request('unrecognized')).status,401);
+ assert.equal(pairing.snapshot().pending.name,'Synthetic phone');assert.deepEqual(pairing.approve(f.id),{ok:true});assert.equal((await request(token)).status,200);
+ assert.equal(fs.readFileSync(path.join(f.folder,'devices.json'),'utf8').includes(token),false);assert.equal(f.store.pending(),null);
+ }finally{f.cleanup();}});
+test('approved device survives Mac process recreation and shutdown memory cleanup; revocation persists',()=>{const f=fixture();try{const core=f.makeCore(),pairing=new PairingApproval({core,enrollmentStore:f.store,now:()=>100000});pairing.approve(f.id);core.clearMemory();assert.throws(()=>core.authorize(token,'catalog.read'));const restarted=f.makeCore();assert.equal(restarted.authorize(token,'catalog.read').name,'Synthetic phone');assert.throws(()=>restarted.authorize(token,'downloads.write'));restarted.revoke(f.id);assert.throws(()=>f.makeCore().authorize(token,'catalog.read'));}finally{f.cleanup();}});
+test('rejecting a prepared phone removes pending access without granting a credential',()=>{const f=fixture();try{const core=f.makeCore(),pairing=new PairingApproval({core,enrollmentStore:f.store,now:()=>100000});pairing.reject(f.id);assert.equal(f.store.pendingToken(token),false);assert.throws(()=>core.authorize(token,'catalog.read'));assert.equal(f.store.loadDevices().length,0);}finally{f.cleanup();}});
+test('remembered device store rejects insecure permissions and symlinked files',()=>{const f=fixture();try{const file=path.join(f.folder,'devices.json');fs.chmodSync(file,0o644);assert.throws(()=>f.store.loadDevices());fs.unlinkSync(file);fs.symlinkSync('/etc/hosts',file);assert.throws(()=>f.store.loadDevices());}finally{f.cleanup();}});

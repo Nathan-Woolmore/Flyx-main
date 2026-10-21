@@ -10,8 +10,17 @@
  */
 
 import fs from "node:fs";
+import { trashManagedDownload } from "./trash-file";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { localFileRevision, openLocalDownload, trashingDownloads } from "./local-files";
+import { downloadIdentity, localIdentityKey } from "./local-identity";
+import {
+  assertRelinkUnambiguous,
+  LocalRelinkError,
+  relinkContext,
+  validateLocalRelink,
+} from "./local-relink";
 import {
   ensureDownloadDir,
   getDownloadDir,
@@ -22,6 +31,7 @@ import {
 } from "./types";
 import { downloadVideo, type VideoDownloadRequest } from "./video";
 import { downloadMangaChapter, type MangaDownloadRequest } from "./manga";
+import { downloadMangaCollection, discardMangaCollectionCache } from "./manga-collection";
 
 const MAX_CONCURRENT = 2;
 
@@ -37,6 +47,8 @@ interface DownloadState {
   active: number;
   initialized: boolean;
   persistTimer: ReturnType<typeof setTimeout> | null;
+  admission?: Promise<void>;
+  removing?: Set<string>;
 }
 
 const g = globalThis as unknown as { __flyxDownloads?: DownloadState };
@@ -51,7 +63,7 @@ const state: DownloadState = (g.__flyxDownloads ??= {
 
 // ── Persistence ──────────────────────────────────────────────────
 
-function persist(): void {
+function persist(): boolean {
   try {
     fs.mkdirSync(HISTORY_DIR, { recursive: true });
     fs.writeFileSync(
@@ -59,8 +71,9 @@ function persist(): void {
       JSON.stringify(Array.from(state.jobs.values()), null, 2),
       "utf-8",
     );
+    return true;
   } catch {
-    /* best effort */
+    return false;
   }
 }
 
@@ -74,12 +87,12 @@ function schedulePersist(): void {
   }, 1000);
 }
 
-function persistNow(): void {
+function persistNow(): boolean {
   if (state.persistTimer) {
     clearTimeout(state.persistTimer);
     state.persistTimer = null;
   }
-  persist();
+  return persist();
 }
 
 function init(): void {
@@ -131,8 +144,8 @@ function buildJob(item: DownloadItemInput): DownloadJob {
     base.quality = item.quality;
     base.language = item.language;
     base.durationSec = item.durationSec;
-    base.filename = buildFilename(item);
-    if (item.mediaType === "tv" && item.season && item.episode) {
+    base.filename = buildFilename(item, base.id);
+    if (item.mediaType === "tv" && item.season != null && item.episode != null) {
       const e = String(item.episode).padStart(2, "0");
       // Anime uses absolute episode numbers (no season), e.g. "E05".
       if (item.malId) {
@@ -147,8 +160,11 @@ function buildJob(item: DownloadItemInput): DownloadJob {
   } else {
     base.mangaId = item.mangaId;
     base.chapter = item.chapter;
-    base.filename = buildFilename(item);
-    base.label = `${item.title || "Manga"} — Chapter ${item.chapter}`;
+    base.collection = item.collection;
+    base.filename = buildFilename(item, item.collection ? base.id : undefined);
+    base.label = item.collection
+      ? `${item.title || "Manga"} — Available chapters (${item.collection.language}, ${item.collection.edition})`
+      : `${item.title || "Manga"} — Chapter ${item.chapter}`;
   }
 
   return base;
@@ -179,10 +195,28 @@ async function runJobInner(id: string): Promise<void> {
   if (!job) return;
 
   const dir = getDownloadDir();
+  if (job.collectionRoot && path.resolve(dir) !== job.collectionRoot) {
+    patch(
+      id,
+      {
+        status: "error",
+        error:
+          "The download folder changed. Restore the original folder to retry, or start a fresh collection.",
+      },
+      { immediate: true },
+    );
+    return;
+  }
   try {
+    if (job.collectionRoot && !fs.statSync(dir).isDirectory())
+      throw new Error("Original folder is unavailable");
     ensureDownloadDir(dir);
   } catch (err) {
-    patch(id, { status: "error", error: `Cannot create download folder: ${(err as Error).message}` }, { immediate: true });
+    patch(
+      id,
+      { status: "error", error: `Cannot create download folder: ${(err as Error).message}` },
+      { immediate: true },
+    );
     return;
   }
 
@@ -197,6 +231,7 @@ async function runJobInner(id: string): Promise<void> {
   }
   const controller = new AbortController();
   state.controllers.set(id, controller);
+  if (job.collection) patch(id, { collectionRoot: root }, { immediate: true });
 
   try {
     if (job.kind === "video") {
@@ -225,6 +260,48 @@ async function runJobInner(id: string): Promise<void> {
         },
         controller.signal,
       );
+    } else if (job.collection) {
+      const result = await downloadMangaCollection(
+        { ...job.collection, mangaId: job.mangaId!, jobId: id, plan: job.collectionPlan },
+        dest,
+        (value) => {
+          const fraction =
+            value.phase === "downloading" && value.pageTotal > 0
+              ? value.pageDone / value.pageTotal
+              : 0;
+          patch(id, {
+            status: value.phase === "packing" ? "processing" : "downloading",
+            collectionProgress: value,
+            bytes: value.bytes,
+            totalBytes: 0,
+            progress: value.chaptersTotal
+              ? Math.min(
+                  99,
+                  Math.floor(
+                    ((value.chaptersDone +
+                      (value.chaptersDone < value.chaptersTotal ? fraction : 0)) /
+                      value.chaptersTotal) *
+                      99,
+                  ),
+                )
+              : 0,
+          });
+        },
+        (plan) => patch(id, { collectionPlan: plan }, { immediate: true }),
+        controller.signal,
+      );
+      patch(id, {
+        bytes: result.bytes,
+        totalBytes: result.bytes,
+        collectionProgress: {
+          phase: "packing",
+          chaptersDone: result.chapters,
+          chaptersTotal: result.chapters,
+          pageDone: result.pages,
+          pageTotal: result.pages,
+          bytes: result.bytes,
+        },
+      });
     } else {
       const req: MangaDownloadRequest = {
         mangaId: job.mangaId!,
@@ -246,7 +323,21 @@ async function runJobInner(id: string): Promise<void> {
       );
     }
 
-    patch(id, { status: "done", progress: 100, filepath: dest }, { immediate: true });
+    patch(
+      id,
+      {
+        status: "done",
+        progress: 100,
+        filepath: dest,
+        error: undefined,
+        fileRevision:
+          localFileRevision(fs.statSync(dest, { bigint: true })),
+      },
+      { immediate: true },
+    );
+    // Keep recovery metadata if the history write failed. Never remove the final CBZ.
+    if (job.collection && persistNow())
+      await discardMangaCollectionCache(root, id).catch(() => undefined);
   } catch (err) {
     if (controller.signal.aborted) {
       patch(id, { status: "cancelled" }, { immediate: true });
@@ -254,12 +345,14 @@ async function runJobInner(id: string): Promise<void> {
       patch(id, { status: "error", error: (err as Error).message }, { immediate: true });
     }
     try {
-      if (fs.existsSync(dest)) fs.unlinkSync(dest);
+      if (!job.collection && fs.existsSync(dest)) fs.unlinkSync(dest);
     } catch {
       /* partial file may be locked/absent */
     }
   } finally {
     state.controllers.delete(id);
+    if (job.collection && !state.jobs.has(id))
+      await discardMangaCollectionCache(root, id).catch(() => undefined);
   }
 }
 
@@ -300,6 +393,36 @@ export function createJobs(items: DownloadItemInput[]): DownloadJob[] {
   return created;
 }
 
+/** Serialize queue admission across route bundles; persisted jobs also protect after restart. */
+export async function createOrReuseJobs(items: DownloadItemInput[]): Promise<DownloadJob[]> {
+  init();
+  const before = state.admission ?? Promise.resolve();
+  let release!: () => void;
+  state.admission = new Promise<void>(resolve => { release = resolve; });
+  await before.catch(() => undefined);
+  try {
+    const result: DownloadJob[] = [];
+    for (const item of items) {
+      const identity = item.kind === "video"
+        ? downloadIdentity({ ...item, status: "done" } as DownloadJob) : null;
+      let existing: DownloadJob | undefined;
+      if (identity) {
+        for (const job of listJobs()) {
+          const other = downloadIdentity({ ...job, status: "done" });
+          if (!other || localIdentityKey(other) !== localIdentityKey(identity)) continue;
+          if (["queued", "downloading", "processing"].includes(job.status)) { existing = job; break; }
+          if (job.status === "done") {
+            const file = await openLocalDownload(job, listJobs(), getDownloadDir());
+            if (file) { await file.handle.close(); const current=state.jobs.get(job.id); if(current?.status === "done" && current.fileRevision === file.revision){ existing = current; break; } }
+          }
+        }
+      }
+      result.push(existing ?? createJobs([item])[0]!);
+    }
+    return result;
+  } finally { release(); }
+}
+
 export function cancelJob(id: string): boolean {
   init();
   const job = state.jobs.get(id);
@@ -329,5 +452,81 @@ export function removeJob(id: string): boolean {
   }
   state.jobs.delete(id);
   persistNow();
+  if (job.collectionRoot && !state.controllers.has(id))
+    void discardMangaCollectionCache(job.collectionRoot, id).catch(() => undefined);
   return true;
+}
+
+/** The HTTP Remove action reports cache-cleanup failure before dropping its queue row. */
+export async function removeJobWithCache(id: string): Promise<boolean> {
+  init();
+  const job = state.jobs.get(id);
+  if (!job) return false;
+  const removing = state.removing ??= new Set<string>();
+  if (removing.has(id)) throw new Error("This download is already being removed.");
+  removing.add(id);
+  try {
+    if (job.collectionRoot) {
+      if (state.controllers.has(id)) throw new Error("Wait for this download to stop before removing it.");
+      await discardMangaCollectionCache(job.collectionRoot, id);
+    }
+    return removeJob(id);
+  } finally { removing.delete(id); }
+}
+
+/** Keep the record until the native recoverable Trash operation is confirmed. */
+export async function trashJob(id:string,revision:unknown):Promise<void>{
+ init();const job=state.jobs.get(id),removing=state.removing ??= new Set<string>();
+ if(!job||removing.has(id)||state.controllers.has(id)||job.status!=="done")throw new Error("DOWNLOAD_CHANGED");
+ removing.add(id);trashingDownloads.add(id);
+ try{
+  await trashManagedDownload(job,listJobs(),getDownloadDir(),revision);
+  // Publish the new history atomically before dropping the in-memory record.
+  // If writing or renaming fails, the old history and record remain recoverable.
+  const temporary=HISTORY_PATH+".trash-"+randomUUID()+".tmp";
+  try{
+   fs.mkdirSync(HISTORY_DIR,{recursive:true});
+   fs.writeFileSync(temporary,JSON.stringify(listJobs().filter(value=>value.id!==id),null,2),{encoding:"utf8",flag:"wx"});
+   fs.renameSync(temporary,HISTORY_PATH);
+   state.jobs.delete(id);
+  }catch{
+   throw new Error("DOWNLOAD_HISTORY_FAILED");
+  }finally{try{fs.unlinkSync(temporary);}catch{/* only this operation's temporary history file */}}
+ }finally{removing.delete(id);trashingDownloads.delete(id);}
+}
+
+/** Reuses the exact chapter snapshot and verified cached pages. */
+export function retryCollectionJob(id: string): boolean {
+  init();
+  const job = state.jobs.get(id);
+  if (state.removing?.has(id) || !job?.collection || !["error", "cancelled"].includes(job.status) || state.controllers.has(id))
+    return false;
+  patch(id, { status: "queued", error: undefined, progress: 0 }, { immediate: true });
+  state.queue.push(id);
+  pump();
+  return true;
+}
+
+/** Confirmed association only: update the history record, never write/move/delete the media. */
+export async function relinkCompletedDownload(id: string, proof: unknown): Promise<DownloadJob> {
+  init();
+  const job = state.jobs.get(id);
+  const directory = getDownloadDir();
+  const file = await validateLocalRelink(job, listJobs(), directory, proof);
+  const current = state.jobs.get(id);
+  if (!current || relinkContext(current, getDownloadDir()) !== file.context) {
+    throw new LocalRelinkError("The download record or folder changed. Check the file again.", 409);
+  }
+  assertRelinkUnambiguous(current, listJobs(), directory, file.filename);
+  patch(
+    id,
+    {
+      filepath: file.filepath,
+      filename: file.filename,
+      fileRevision: file.revision,
+      fileRelinkedAt: Date.now(),
+    },
+    { immediate: true },
+  );
+  return state.jobs.get(id)!;
 }
