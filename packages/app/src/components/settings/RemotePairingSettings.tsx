@@ -63,7 +63,7 @@ export default function RemotePairingSettings() {
   return <section className={styles.panel} aria-label="Connect your iPhone">
     <span className={styles.eyebrow}>iPhone app</span>
     <h2>Connect your iPhone</h2>
-    <p>One connection code links the Flyx iPhone app to this Mac. Keep both devices on the same home network.</p>
+    <p>One connection code links the Flyx iPhone app to this Mac. Pairing does not expire and stays active until you revoke it. Keep both devices on the same home network.</p>
     <ol className={styles.steps}>
       <li><strong>1 · On this Mac</strong><span>Create a connection code below and copy it.</span></li>
       <li><strong>2 · On your iPhone</strong><span>Open Flyx → App mode → Mac Remote. On “Your Mac. In reach.”, paste the code and connect.</span></li>

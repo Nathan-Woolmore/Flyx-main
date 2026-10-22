@@ -12,13 +12,15 @@ export class RemoteCore {
     this.now = now; this.makeToken = makeToken; this.makeID = makeID; this.dispatch = dispatch; this.saveDevices=saveDevices;
     for(const value of loadDevices()) {
       if(!/^[a-f0-9]{64}$/.test(value.digest)||!Array.isArray(value.scopes)||value.scopes.some(s=>!['catalog.read','playback.control','downloads.read','downloads.write','watchlist.write'].includes(s))||!Number.isFinite(value.expires))throw new Error('Invalid remembered permissions');
-      if(value.expires>this.now())this.#devices.set(value.id,{...value,scopes:new Set(value.scopes),digest:Buffer.from(value.digest,'hex'),seen:new Set()});
+      // Approved pairings last until revoked. Zero preserves the numeric expiry
+      // fields expected by existing iPhone builds and means no expiry.
+      this.#devices.set(value.id,{...value,expires:0,scopes:new Set(value.scopes),digest:Buffer.from(value.digest,'hex'),seen:new Set()});
     }
   }
   persist(){this.saveDevices([...this.#devices.values()].map(({id,name,scopes,digest,expires})=>({id,name,scopes:[...scopes],digest:digest.toString('hex'),expires})));}
   approveDigest({id,name,digest},scopes=['catalog.read','playback.control']){
     if(typeof id!=='string'||!/^[a-zA-Z0-9-]{8,80}$/.test(id)||typeof name!=='string'||!name||name.length>80||!/^[a-f0-9]{64}$/.test(digest)||!Array.isArray(scopes)||scopes.some(s=>!['catalog.read','playback.control','downloads.read','downloads.write','watchlist.write'].includes(s)))throw new Error('Invalid enrollment');
-    this.#devices.set(id,{id,name,scopes:new Set(scopes),digest:Buffer.from(digest,'hex'),expires:this.now()+90*86400000,seen:new Set()});
+    this.#devices.set(id,{id,name,scopes:new Set(scopes),digest:Buffer.from(digest,'hex'),expires:0,seen:new Set()});
     try{this.persist();}catch(error){this.#devices.delete(id);throw error;}return {ok:true};
   }
   openPairing(secret) {
@@ -38,16 +40,16 @@ export class RemoteCore {
     if (!Array.isArray(scopes) || scopes.some(s => !['catalog.read', 'playback.control', 'downloads.read', 'downloads.write','watchlist.write'].includes(s))) throw new Error('Invalid scope');
     const id = this.makeID(), token = this.makeToken();
     if (typeof token !== 'string' || token.length < 43) throw new Error('Invalid token generator');
-    this.#devices.set(id, { id, name, scopes: new Set(scopes), digest: hash(token), expires: this.now() + 86_400_000, seen: new Set() });
+    this.#devices.set(id, { id, name, scopes: new Set(scopes), digest: hash(token), expires: 0, seen: new Set() });
     this.persist();
     this.#offer = undefined;
-    return { deviceID: id, token, expiresIn: 86400, scopes: [...scopes] };
+    return { deviceID: id, token, expiresIn: 0, scopes: [...scopes] };
   }
   authorize(token, scope) {
     if (typeof token !== 'string' || token.length > 512) throw new Error('Unauthorized');
     const digest = hash(token);
     for (const device of this.#devices.values()) {
-      if (equal(device.digest, digest) && this.now() < device.expires && device.scopes.has(scope)) return device;
+      if (equal(device.digest, digest) && device.scopes.has(scope)) return device;
     }
     throw new Error('Unauthorized');
   }

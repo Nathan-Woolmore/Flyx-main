@@ -16,7 +16,7 @@ let autoUpdater = null;
  * Wire up electron-updater. Returns true when updates are possible on
  * this build, false otherwise (dev, portable exe).
  */
-function initUpdater({ onDownloaded } = {}) {
+function initUpdater({ onDownloaded, onBeforeQuit } = {}) {
   if (app.isPackaged === false || process.env.PORTABLE_EXECUTABLE_FILE) {
     return false;
   }
@@ -34,6 +34,7 @@ function initUpdater({ onDownloaded } = {}) {
     warn: (m) => log(`[updater] warn: ${m}`),
     error: (m) => log(`[updater] error: ${m}`),
   };
+  autoUpdater.on("before-quit-for-update", () => onBeforeQuit?.());
 
   autoUpdater.on("checking-for-update", () => log("[updater] checking…"));
   autoUpdater.on("update-available", (info) =>

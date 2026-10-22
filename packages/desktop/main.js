@@ -57,6 +57,7 @@ const vlc = require("./src/vlc");
 const { CastService } = require("./src/cast-service");
 const { isTrustedCastSender } = require("./src/cast-security");
 const { migrateLegacyOriginStorage } = require("./src/storage-migration");
+const { installQuitBehavior } = require("./src/quit-behavior");
 const {
   appOrigin,
   isTrustedSender,
@@ -125,7 +126,7 @@ async function onReady() {
         "computer (on 127.0.0.1 or ::1).\n\nClose the program using it, or " +
         `set a different PORT in:\n${envPath}`,
     );
-    app.quit();
+    quitApp();
     return;
   }
   currentPort = port;
@@ -189,7 +190,7 @@ async function onReady() {
   createWindow();
   loadApp();
 
-  if (!isSilentCastTest && updater.initUpdater({ onDownloaded: onUpdateDownloaded })) {
+  if (!isSilentCastTest && updater.initUpdater({ onDownloaded: onUpdateDownloaded, onBeforeQuit: () => { isQuitting = true; } })) {
     setTimeout(() => updater.checkForUpdates(), 10000);
   }
 
@@ -234,7 +235,7 @@ async function startAndWait() {
     currentChild = child;
   } catch (err) {
     dialog.showErrorBox("Flyx could not start", String((err && err.message) || err));
-    app.quit();
+    quitApp();
     return false;
   }
 
@@ -257,7 +258,7 @@ async function startAndWait() {
     "Flyx could not start",
     `${reason}\n\nDetails were written to:\n${serverLog}`,
   );
-  app.quit();
+  quitApp();
   return false;
 }
 
@@ -985,12 +986,13 @@ function buildTrayMenu() {
       ? [
           {
             label: "Restart to Update",
-            click: () => updater.quitAndInstall(),
+            click: () => { isQuitting = true; updater.quitAndInstall(); },
           },
         ]
       : []),
     { type: "separator" },
-    { label: "Quit Flyx", click: () => quitApp() },
+    { label: "Keep Flyx in Background", click: () => backgroundApp() },
+    { label: "Quit Flyx Completely", click: () => quitApp() },
   ];
   return Menu.buildFromTemplate(template);
 }
@@ -1020,7 +1022,6 @@ function handleTrusted(channel, handler) {
 }
 
 let remoteBridgeCandidate;
-app.on("before-quit",()=>{void remoteBridgeCandidate?.dispose();});
 function registerIpc() {
   let remoteSetupBusy = false;
   const trustedSetup = handler => async event => {
@@ -1048,7 +1049,7 @@ function registerIpc() {
         });
         return answer.response === 1;
       }});
-      if (result.restartRequired) setTimeout(() => { app.relaunch(); app.quit(); }, 400);
+      if (result.restartRequired) setTimeout(() => { app.relaunch(); quitApp(); }, 400);
       return result;
     } finally { remoteSetupBusy = false; }
   }));
@@ -1126,8 +1127,23 @@ function quitApp() {
   app.quit();
 }
 
-app.on("before-quit", () => {
-  isQuitting = true;
+// Process termination is an explicit shutdown, including OS/session cleanup.
+process.on("SIGTERM", quitApp);
+process.on("SIGINT", quitApp);
+
+function backgroundApp() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+  if (process.platform === "darwin") app.hide();
+}
+
+installQuitBehavior({
+  app,
+  shouldBackground: () => !isQuitting && gotLock && !!tray && !tray.isDestroyed(),
+  background: backgroundApp,
+  shutdown: () => {
+    isQuitting = true;
+    void remoteBridgeCandidate?.dispose();
+  },
 });
 
 // Never quit on window close — the tray keeps the LAN server alive.

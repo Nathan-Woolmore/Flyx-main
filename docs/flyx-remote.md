@@ -58,6 +58,10 @@ Save it as `remote/config.json`. Keep every referenced file in that directory. R
 
 The complete connection code carries the certificate fingerprint; advanced connection details also show it on the Mac. The HTTPS client validates the pinned identity; it does not require globally trusting a private CA. Pairing offers are short-lived, require explicit Mac approval and return the phone credential once. The Mac persists digests; the iOS Keychain holds its scoped credential. Disable/revoke access from Mac settings. Admin credentials and provider URLs remain on the Mac.
 
+Approved phone pairings do not expire and survive app and Mac restarts until explicitly revoked. Existing approved devices, including records with the former time limits, migrate to permanent pairing; revoked devices stay removed. Stored `expires: 0` and protocol `expiresAt: 0` / `expiresIn: 0` mean no pairing expiry and remain compatible with existing iPhone builds. Connection codes and pending approval still have their short time limits.
+
+Closing the Mac window or choosing Quit (including Command-Q) hides Flyx and keeps the phone connection running. Use **Quit Flyx Completely** in the menu bar tray to stop the app and its connection service.
+
 ## Command and media flow
 
 The phone sends allowlisted, authenticated operations to the Mac HTTPS listener. The Electron main process applies scopes and forwards bounded requests only to the trusted renderer. That renderer reuses the existing Flyx catalogue, download manager, source selection and native player/Cast implementation. Download/watchlist mutations require their explicit scopes.

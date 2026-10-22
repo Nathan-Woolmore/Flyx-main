@@ -7,12 +7,15 @@ const fixture = () => {
   const pair = scopes => { core.openPairing('a'.repeat(64)); return core.approve({ secret: 'a'.repeat(64), name: 'Synthetic iPhone', scopes }); };
   return { core, calls, pair, advance: delta => now += delta };
 };
-test('pairing is one-use, expires and stores no plaintext credential in listing', () => {
+test('approved pairing never expires, is one-use and stores no plaintext credential in listing', () => {
  const f = fixture(), grant = f.pair();
  assert.equal(f.core.authorize(grant.token, 'catalog.read').name, 'Synthetic iPhone');
  assert.equal(JSON.stringify(f.core.listDevices()).includes(grant.token), false);
  assert.throws(() => f.core.approve({ secret: 'a'.repeat(64), name: 'Replay' }));
- f.advance(86_400_001); assert.throws(() => f.core.authorize(grant.token, 'catalog.read'));
+ assert.equal(grant.expiresIn,0);
+ f.advance(100*365*86_400_000);
+ assert.equal(f.core.authorize(grant.token, 'catalog.read').name, 'Synthetic iPhone');
+ assert.equal(f.core.listDevices()[0].expires,0);
 });
 test('revocation blocks all future commands', async () => {
  const f = fixture(), grant = f.pair(); f.core.revoke(grant.deviceID);
